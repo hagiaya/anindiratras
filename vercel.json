@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd anindira-app && npm install && npm run build",
+  "outputDirectory": "anindira-app/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
