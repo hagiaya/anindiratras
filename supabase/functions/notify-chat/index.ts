@@ -1,0 +1,71 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+
+serve(async (req) => {
+  try {
+    const payload = await req.json()
+    const record = payload.record;
+
+    if (!record || !record.receiver_id || !record.message) {
+      return new Response("Not a valid chat message.", { status: 200 })
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Ambil nama pengirim
+    const { data: sender } = await supabase
+      .from('users')
+      .select('full_name')
+      .eq('id', record.sender_id)
+      .single();
+
+    const senderName = sender?.full_name || 'Seseorang';
+
+    // Ambil nomor HP penerima
+    const { data: receiver } = await supabase
+      .from('users')
+      .select('phone')
+      .eq('id', record.receiver_id)
+      .single();
+
+    if (!receiver || !receiver.phone) {
+      return new Response("Receiver has no phone number.", { status: 200 })
+    }
+
+    const fonnteToken = Deno.env.get('FONNTE_TOKEN');
+    
+    if (!fonnteToken) {
+      throw new Error("FONNTE_TOKEN is not set in Supabase Secrets");
+    }
+
+    const messageText = `💬 *Pesan Baru di Anindira Trans*\n\nDari: *${senderName}*\nPesan: _"${record.message}"_\n\nSegera cek dan balas melalui aplikasi Anindira Trans.`;
+
+    const response = await fetch('https://api.fonnte.com/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': fonnteToken
+      },
+      body: JSON.stringify({
+        target: receiver.phone,
+        message: messageText
+      })
+    });
+
+    const result = await response.json();
+
+    return new Response(JSON.stringify({ success: true, result }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200,
+    })
+
+  } catch (error) {
+    console.error("Error:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { "Content-Type": "application/json" },
+      status: 400,
+    })
+  }
+})

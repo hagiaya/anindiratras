@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*
+.DS_Store
+dist/
+build/
+android/
+!android/app/src/main/res/
+!android/app/src/main/AndroidManifest.xml
+!android/app/build.gradle
+!android/build.gradle
