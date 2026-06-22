@@ -95,7 +95,7 @@ serve(async (req) => {
     }
 
     // Sign JWT
-    const jwtSecret = Deno.env.get('SUPABASE_JWT_SECRET') || ''
+    const jwtSecret = Deno.env.get('CUSTOM_JWT_SECRET') || ''
     const secret = new TextEncoder().encode(jwtSecret)
     const alg = 'HS256'
     
