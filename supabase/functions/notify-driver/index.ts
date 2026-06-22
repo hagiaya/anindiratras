@@ -42,14 +42,13 @@ serve(async (req) => {
     const messageText = `🚨 *ORDERAN BARU MASUK!* 🚨\n\nLayanan: *${record.order_type.replace('_', ' ')}*\nTotal: *Rp ${record.total_price.toLocaleString('id-ID')}*\n\nSegera buka aplikasi Anindira Trans untuk mengambil orderan ini.`;
 
     // Tembak API Fonnte
-    // API ini sangat ringan, payload json hanya sekitar < 1KB (sangat jauh di bawah limit egress 2GB Supabase).
+    // Menggunakan URLSearchParams sesuai format yang diterima Fonnte
     const response = await fetch('https://api.fonnte.com/send', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': fonnteToken
       },
-      body: JSON.stringify({
+      body: new URLSearchParams({
         target: phones,
         message: messageText
       })

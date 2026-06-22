@@ -45,10 +45,9 @@ serve(async (req) => {
     const response = await fetch('https://api.fonnte.com/send', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': fonnteToken
       },
-      body: JSON.stringify({
+      body: new URLSearchParams({
         target: receiver.phone,
         message: messageText
       })
