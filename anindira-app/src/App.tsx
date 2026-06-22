@@ -83,7 +83,7 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
           </Link>
           <Link to="/admin/transactions" className={`flex items-center space-x-3 rounded-lg px-4 py-3 ${location.pathname === '/admin/transactions' ? 'bg-gray-800 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}>
             <CreditCard size={20} />
-            <span>Verifikasi Top Up</span>
+            <span>Manajemen Transaksi</span>
           </Link>
           <Link to="/admin/settings" className={`flex items-center space-x-3 rounded-lg px-4 py-3 ${location.pathname === '/admin/settings' ? 'bg-gray-800 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}>
             <Settings size={20} />

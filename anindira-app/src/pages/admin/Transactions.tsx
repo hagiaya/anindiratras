@@ -105,7 +105,7 @@ export default function Transactions() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Verifikasi Pembayaran</h1>
+      <h1 className="text-2xl font-bold text-gray-900">Manajemen Transaksi</h1>
       
       {transactions.length === 0 ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
