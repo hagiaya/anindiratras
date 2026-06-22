@@ -167,3 +167,43 @@ ON public.transactions FOR INSERT
 WITH CHECK (auth.uid() = user_id);
 
 -- Note: Proper RLS for driver assignments will be created via Supabase dashboard or migrations.
+
+-- BANK ACCOUNTS TABLE
+CREATE TABLE public.bank_accounts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  bank_name VARCHAR(100) NOT NULL,
+  account_number VARCHAR(100) NOT NULL,
+  account_holder VARCHAR(100) NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bank Accounts Policies
+ALTER TABLE public.bank_accounts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view active bank accounts" 
+ON public.bank_accounts FOR SELECT 
+USING (is_active = true OR auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Admins can insert bank accounts" 
+ON public.bank_accounts FOR INSERT 
+WITH CHECK (auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Admins can update bank accounts" 
+ON public.bank_accounts FOR UPDATE 
+USING (auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Admins can delete bank accounts" 
+ON public.bank_accounts FOR DELETE 
+USING (auth.jwt() ->> 'role' = 'ADMIN');
+
+-- STORAGE BUCKETS
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('payment_receipts', 'payment_receipts', true)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Give public access to payment receipts" ON storage.objects
+FOR SELECT USING (bucket_id = 'payment_receipts');
+
+CREATE POLICY "Allow authenticated uploads to payment receipts" ON storage.objects
+FOR INSERT TO authenticated WITH CHECK (bucket_id = 'payment_receipts');

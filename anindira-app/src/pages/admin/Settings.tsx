@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Map, Tag, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Map, Tag, RefreshCw, Landmark } from 'lucide-react'
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<'ROUTES' | 'PRICES'>('ROUTES')
+  const [activeTab, setActiveTab] = useState<'ROUTES' | 'PRICES' | 'BANKS'>('ROUTES')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState('')
 
@@ -19,6 +19,12 @@ export default function Settings() {
   const [newSeatType, setNewSeatType] = useState('')
   const [newBasePrice, setNewBasePrice] = useState('')
   const [newDescription, setNewDescription] = useState('')
+
+  // Banks State
+  const [banks, setBanks] = useState<any[]>([])
+  const [newBankName, setNewBankName] = useState('')
+  const [newAccountNumber, setNewAccountNumber] = useState('')
+  const [newAccountHolder, setNewAccountHolder] = useState('')
 
   useEffect(() => {
     fetchData()
@@ -46,9 +52,18 @@ export default function Settings() {
       if (pricesError) throw new Error('Harga Error: ' + pricesError.message)
       setPrices(pricesData || [])
 
+      // Fetch banks
+      const { data: banksData, error: banksError } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        
+      if (banksError) throw new Error('Bank Error: ' + banksError.message)
+      setBanks(banksData || [])
+
     } catch (err: any) {
       console.error(err)
-      setError('Gagal memuat data: ' + err.message + '. Jika pesan ini muncul, pastikan tabel routes & product_prices sudah dibuat dan Anda terhubung ke internet.')
+      setError('Gagal memuat data: ' + err.message)
     } finally {
       setIsRefreshing(false)
     }
@@ -114,6 +129,37 @@ export default function Settings() {
     else setError(error.message)
   }
 
+  // --- BANKS LOGIC ---
+  const handleAddBank = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newBankName || !newAccountNumber || !newAccountHolder) return
+    setIsRefreshing(true)
+    const { error } = await supabase.from('bank_accounts').insert({
+      bank_name: newBankName,
+      account_number: newAccountNumber,
+      account_holder: newAccountHolder,
+      is_active: true
+    })
+    setIsRefreshing(false)
+    if (!error) {
+      setNewBankName('')
+      setNewAccountNumber('')
+      setNewAccountHolder('')
+      fetchData()
+    } else {
+      setError(error.message)
+    }
+  }
+
+  const handleDeleteBank = async (id: string) => {
+    if (!confirm('Hapus rekening bank ini?')) return
+    setIsRefreshing(true)
+    const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
+    setIsRefreshing(false)
+    if (!error) fetchData()
+    else setError(error.message)
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -146,6 +192,13 @@ export default function Settings() {
         >
           <Tag size={18} />
           <span>Manajemen Harga & Jasa</span>
+        </button>
+        <button
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'BANKS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('BANKS')}
+        >
+          <Landmark size={18} />
+          <span>Rekening Pembayaran</span>
         </button>
       </div>
 
@@ -292,6 +345,60 @@ export default function Settings() {
                   ))}
                   {prices.length === 0 && (
                     <tr><td colSpan={4} className="text-center py-8 text-gray-400 font-medium">Belum ada harga disetel</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'BANKS' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Plus size={20} className="mr-2 text-primary"/> Tambah Rekening Bank</h2>
+            <form onSubmit={handleAddBank} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Nama Bank</label>
+                <input required type="text" value={newBankName} onChange={e=>setNewBankName(e.target.value)} placeholder="Contoh: BCA / Mandiri / BRI" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Nomor Rekening</label>
+                <input required type="text" value={newAccountNumber} onChange={e=>setNewAccountNumber(e.target.value)} placeholder="Misal: 1234567890" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Atas Nama</label>
+                <input required type="text" value={newAccountHolder} onChange={e=>setNewAccountHolder(e.target.value)} placeholder="Misal: PT Anindira Trans" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
+              </div>
+              <button disabled={isRefreshing} type="submit" className="w-full bg-gray-900 text-white font-bold rounded-xl py-3 hover:bg-black transition active:scale-95 disabled:opacity-50">
+                Simpan Rekening
+              </button>
+            </form>
+          </div>
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Bank</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Nomor Rekening</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Atas Nama</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold uppercase text-gray-500">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {banks.map(b => (
+                    <tr key={b.id}>
+                      <td className="px-6 py-4 font-bold text-gray-900">{b.bank_name}</td>
+                      <td className="px-6 py-4 font-mono text-sm text-gray-700">{b.account_number}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700">{b.account_holder}</td>
+                      <td className="px-6 py-4 text-right">
+                        <button onClick={() => handleDeleteBank(b.id)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition"><Trash2 size={18}/></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {banks.length === 0 && (
+                    <tr><td colSpan={4} className="text-center py-8 text-gray-400 font-medium">Belum ada rekening bank</td></tr>
                   )}
                 </tbody>
               </table>

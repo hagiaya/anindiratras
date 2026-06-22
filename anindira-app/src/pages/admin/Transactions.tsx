@@ -31,7 +31,11 @@ export default function Transactions() {
   }
 
   const handleVerify = async (transaction: any) => {
-    if (!confirm('Verifikasi pembayaran ini? Saldo user akan bertambah otomatis.')) return
+    let msg = transaction.type === 'TOP_UP' 
+      ? 'Verifikasi Top Up ini? Saldo user akan bertambah otomatis.'
+      : 'Verifikasi Pembayaran Pesanan ini?'
+      
+    if (!confirm(msg)) return
 
     try {
       // 1. Update transaction status
@@ -42,24 +46,33 @@ export default function Transactions() {
 
       if (updateTxError) throw updateTxError
 
-      // 2. Add balance to user
-      // Note: we fetch current balance first to increment
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('id', transaction.user_id)
-        .single()
+      if (transaction.type === 'TOP_UP') {
+        // 2a. Add balance to user
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('balance')
+          .eq('id', transaction.user_id)
+          .single()
+          
+        if (userError) throw userError
         
-      if (userError) throw userError
-      
-      const newBalance = (userData.balance || 0) + transaction.amount
+        const newBalance = (userData.balance || 0) + transaction.amount
 
-      const { error: updateBalanceError } = await supabase
-        .from('users')
-        .update({ balance: newBalance })
-        .eq('id', transaction.user_id)
+        const { error: updateBalanceError } = await supabase
+          .from('users')
+          .update({ balance: newBalance })
+          .eq('id', transaction.user_id)
 
-      if (updateBalanceError) throw updateBalanceError
+        if (updateBalanceError) throw updateBalanceError
+      } else if (transaction.type === 'PAYMENT' && transaction.order_id) {
+        // 2b. Update order payment status
+        const { error: updateOrderError } = await supabase
+          .from('orders')
+          .update({ payment_status: 'PAID' })
+          .eq('id', transaction.order_id)
+          
+        if (updateOrderError) throw updateOrderError
+      }
 
       alert('Berhasil diverifikasi!')
       fetchTransactions() // refresh list

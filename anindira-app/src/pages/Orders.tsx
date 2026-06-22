@@ -1,12 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Package, CarFront, Plane, Car } from 'lucide-react'
+import { ArrowLeft, Package, CarFront, Plane, Car, Upload, X } from 'lucide-react'
+import imageCompression from 'browser-image-compression'
 
 export default function Orders() {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [balance, setBalance] = useState<number>(0)
+  const [banks, setBanks] = useState<any[]>([])
+  
+  // Payment Modal State
+  const [selectedOrder, setSelectedOrder] = useState<any>(null)
+  const [paymentMethod, setPaymentMethod] = useState<'ANINDIRAPAY' | 'TRANSFER'>('ANINDIRAPAY')
+  const [selectedBankId, setSelectedBankId] = useState('')
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
+  
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -34,6 +44,14 @@ export default function Orders() {
         .single()
       
       if (userData) setBalance(userData.balance || 0)
+
+      // Fetch Banks
+      const { data: banksData } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .eq('is_active', true)
+      
+      if (banksData) setBanks(banksData)
 
     } catch (error) {
       console.error('Error fetching orders:', error)
@@ -63,21 +81,28 @@ export default function Orders() {
     }
   }
 
-  const handlePayment = async (order: any) => {
-    if (balance < order.total_price) {
+  const handlePayment = (order: any) => {
+    setSelectedOrder(order)
+    setPaymentMethod('ANINDIRAPAY')
+    setReceiptFile(null)
+    setSelectedBankId('')
+  }
+
+  const processAnindiraPay = async () => {
+    if (balance < selectedOrder.total_price) {
       alert('Saldo AnindiraPay Anda tidak mencukupi. Silakan Top Up terlebih dahulu.')
       navigate('/topup')
       return
     }
 
-    if (!confirm(`Konfirmasi pembayaran sebesar Rp ${order.total_price.toLocaleString('id-ID')} menggunakan saldo AnindiraPay?`)) return
-
+    if (!confirm(`Konfirmasi pembayaran sebesar Rp ${selectedOrder.total_price.toLocaleString('id-ID')} menggunakan saldo AnindiraPay?`)) return
+    
+    setIsUploading(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      // 1. Deduct balance
-      const newBalance = balance - order.total_price
+      const newBalance = balance - selectedOrder.total_price
       const { error: balanceError } = await supabase
         .from('users')
         .update({ balance: newBalance })
@@ -85,28 +110,83 @@ export default function Orders() {
 
       if (balanceError) throw balanceError
 
-      // 2. Update order payment status
       const { error: orderError } = await supabase
         .from('orders')
         .update({ payment_status: 'PAID' })
-        .eq('id', order.id)
+        .eq('id', selectedOrder.id)
 
       if (orderError) throw orderError
 
-      // 3. Record transaction
       await supabase.from('transactions').insert({
         user_id: session.user.id,
         type: 'PAYMENT',
-        amount: order.total_price,
-        order_id: order.id,
-        status: 'VERIFIED' // Instantly verified because it uses internal balance
+        amount: selectedOrder.total_price,
+        order_id: selectedOrder.id,
+        status: 'VERIFIED'
       })
 
       alert('Pembayaran berhasil!')
+      setSelectedOrder(null)
       fetchOrdersAndBalance()
     } catch (err) {
       console.error(err)
       alert('Terjadi kesalahan saat memproses pembayaran.')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const processTransfer = async () => {
+    if (!selectedBankId) return alert('Silakan pilih bank tujuan')
+    if (!receiptFile) return alert('Silakan upload bukti transfer')
+
+    setIsUploading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      // Compress image
+      const options = {
+        maxSizeMB: 0.5, // 500KB
+        maxWidthOrHeight: 1024,
+        useWebWorker: true
+      }
+      const compressedFile = await imageCompression(receiptFile, options)
+      
+      const fileExt = receiptFile.name.split('.').pop()
+      const fileName = `${session.user.id}-${Date.now()}.${fileExt}`
+      const filePath = `receipts/${fileName}`
+
+      // Upload to Storage
+      const { error: uploadError } = await supabase.storage
+        .from('payment_receipts')
+        .upload(filePath, compressedFile)
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('payment_receipts')
+        .getPublicUrl(filePath)
+
+      // Create transaction
+      await supabase.from('transactions').insert({
+        user_id: session.user.id,
+        type: 'PAYMENT',
+        amount: selectedOrder.total_price,
+        order_id: selectedOrder.id,
+        status: 'PENDING',
+        receipt_url: publicUrl,
+        notes: `Transfer ke Bank ID: ${selectedBankId}`
+      })
+
+      alert('Bukti transfer berhasil diunggah! Menunggu verifikasi admin.')
+      setSelectedOrder(null)
+      fetchOrdersAndBalance()
+    } catch (err) {
+      console.error(err)
+      alert('Gagal mengunggah bukti pembayaran')
+    } finally {
+      setIsUploading(false)
     }
   }
 
@@ -171,7 +251,7 @@ export default function Orders() {
                     onClick={() => handlePayment(order)}
                     className="w-full rounded-xl bg-primary py-2 text-sm font-bold text-white transition active:scale-[0.98]"
                   >
-                    Bayar via AnindiraPay
+                    Bayar Sekarang
                   </button>
                 )}
               </div>
@@ -179,6 +259,116 @@ export default function Orders() {
           </div>
         )}
       </div>
+
+      {/* Payment Modal */}
+      {selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl relative max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => setSelectedOrder(null)}
+              className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={24} />
+            </button>
+            
+            <h2 className="text-xl font-bold text-gray-900 mb-6">Pilih Metode Pembayaran</h2>
+            
+            <div className="space-y-3 mb-6">
+              <label className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === 'ANINDIRAPAY' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
+                <div className="flex items-center space-x-3">
+                  <input 
+                    type="radio" 
+                    name="payment" 
+                    value="ANINDIRAPAY"
+                    checked={paymentMethod === 'ANINDIRAPAY'}
+                    onChange={() => setPaymentMethod('ANINDIRAPAY')}
+                    className="text-primary focus:ring-primary h-4 w-4"
+                  />
+                  <div>
+                    <p className="font-bold text-gray-900">AnindiraPay</p>
+                    <p className="text-sm text-gray-500">Saldo: Rp {balance.toLocaleString('id-ID')}</p>
+                  </div>
+                </div>
+              </label>
+
+              <label className={`block border rounded-xl p-4 cursor-pointer transition ${paymentMethod === 'TRANSFER' ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
+                <div className="flex items-center space-x-3">
+                  <input 
+                    type="radio" 
+                    name="payment" 
+                    value="TRANSFER"
+                    checked={paymentMethod === 'TRANSFER'}
+                    onChange={() => setPaymentMethod('TRANSFER')}
+                    className="text-primary focus:ring-primary h-4 w-4"
+                  />
+                  <div>
+                    <p className="font-bold text-gray-900">Transfer Bank</p>
+                    <p className="text-sm text-gray-500">Upload bukti transfer</p>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {paymentMethod === 'TRANSFER' && (
+              <div className="space-y-4 mb-6 border-t border-gray-100 pt-4">
+                <div>
+                  <label className="text-sm font-bold text-gray-700 block mb-2">Pilih Bank Tujuan</label>
+                  <select 
+                    value={selectedBankId}
+                    onChange={(e) => setSelectedBankId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:border-primary outline-none"
+                  >
+                    <option value="" disabled>Pilih Rekening Bank...</option>
+                    {banks.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.bank_name} - {b.account_number} ({b.account_holder})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedBankId && (
+                  <div>
+                    <label className="text-sm font-bold text-gray-700 block mb-2">Upload Bukti Transfer</label>
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition relative overflow-hidden">
+                      {receiptFile ? (
+                        <div className="text-center p-4">
+                          <p className="text-sm font-medium text-gray-900 line-clamp-1">{receiptFile.name}</p>
+                          <p className="text-xs text-primary mt-1">Ganti file</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <Upload className="w-8 h-8 mb-2 text-gray-400" />
+                          <p className="text-sm text-gray-500 font-semibold">Klik untuk upload bukti</p>
+                        </div>
+                      )}
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        className="hidden" 
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            setReceiptFile(e.target.files[0])
+                          }
+                        }}
+                      />
+                    </label>
+                    <p className="text-xs text-gray-400 mt-2 text-center">Gambar akan dikompres otomatis (Maks. 500KB)</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              disabled={isUploading || (paymentMethod === 'TRANSFER' && (!selectedBankId || !receiptFile))}
+              onClick={() => paymentMethod === 'ANINDIRAPAY' ? processAnindiraPay() : processTransfer()}
+              className="w-full rounded-xl bg-primary py-3.5 font-bold text-white shadow-lg shadow-blue-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+            >
+              {isUploading ? 'Memproses...' : 'Konfirmasi Pembayaran'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
