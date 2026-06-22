@@ -16,6 +16,7 @@ export default function Login() {
   const [licenseNumber, setLicenseNumber] = useState('')
   const [carPlate, setCarPlate] = useState('')
   const [carType, setCarType] = useState('')
+  const [carColor, setCarColor] = useState('')
   const [seatLayout, setSeatLayout] = useState('4_SEATS')
   
   const [otp, setOtp] = useState('')
@@ -101,9 +102,9 @@ export default function Login() {
 
       if (fnError || data?.error) throw new Error(fnError?.message || data?.error || 'Gagal memverifikasi OTP')
       
-      let userRole = mode === 'REGISTER' ? role : 'USER'
+      let userRole: string = mode === 'REGISTER' ? role : 'USER'
       if (data?.session) {
-        const { data: setSessionData, error: setSessionError } = await supabase.auth.setSession({
+        const { data: setSessionData } = await supabase.auth.setSession({
           access_token: data.session.access_token,
           refresh_token: data.session.refresh_token
         })
