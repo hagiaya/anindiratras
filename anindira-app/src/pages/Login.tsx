@@ -16,14 +16,10 @@ export default function Login() {
   const [licenseNumber, setLicenseNumber] = useState('')
   const [carPlate, setCarPlate] = useState('')
   const [carType, setCarType] = useState('')
-  const [carColor, setCarColor] = useState('')
   const [seatLayout, setSeatLayout] = useState('4_SEATS')
   
-  const [adminEmail, setAdminEmail] = useState('')
-  const [adminPassword, setAdminPassword] = useState('')
-  
   const [otp, setOtp] = useState('')
-  const [step, setStep] = useState<'LANDING' | 'PHONE' | 'REGISTER_FORM' | 'METHOD' | 'OTP' | 'SUCCESS' | 'ADMIN_LOGIN'>('LANDING')
+  const [step, setStep] = useState<'LANDING' | 'PHONE' | 'REGISTER_FORM' | 'METHOD' | 'OTP' | 'SUCCESS'>('LANDING')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -44,32 +40,6 @@ export default function Login() {
       }
     })
   }, [navigate])
-
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: adminEmail,
-        password: adminPassword,
-      })
-
-      if (signInError) throw signInError
-
-      const userRole = data.user?.user_metadata?.role
-      if (userRole === 'ADMIN') {
-        navigate('/admin', { replace: true })
-      } else {
-        await supabase.auth.signOut()
-        throw new Error('Akun ini tidak memiliki akses admin.')
-      }
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -238,12 +208,6 @@ export default function Login() {
               className="w-full rounded-full border-2 border-primary py-3.5 font-semibold text-primary transition active:scale-[0.98]"
             >
               Saya pengguna baru, daftar akun
-            </button>
-            <button
-              onClick={() => { setStep('ADMIN_LOGIN'); }}
-              className="w-full rounded-full bg-gray-100 border-2 border-gray-300 py-3.5 font-semibold text-gray-700 transition active:scale-[0.98] mt-2"
-            >
-              Masuk sebagai Admin
             </button>
           </div>
           <p className="mt-6 text-center text-xs text-gray-400">
@@ -530,60 +494,6 @@ export default function Login() {
           <div className="h-2 w-2 animate-bounce rounded-full bg-white"></div>
           <div className="h-2 w-2 animate-bounce rounded-full bg-white" style={{ animationDelay: '0.2s' }}></div>
           <div className="h-2 w-2 animate-bounce rounded-full bg-white" style={{ animationDelay: '0.4s' }}></div>
-        </div>
-      </div>
-    )
-  }
-
-  // --- ADMIN LOGIN SCREEN ---
-  if (step === 'ADMIN_LOGIN') {
-    return (
-      <div className="flex min-h-screen flex-col bg-white">
-        {renderHeader(() => setStep('LANDING'))}
-        <div className="flex flex-1 flex-col px-6">
-          <h1 className="mt-4 text-2xl font-bold text-gray-900">Masuk sebagai Admin</h1>
-          <p className="mt-2 text-sm text-gray-500">
-            Masukkan email dan kata sandi untuk mengakses dashboard admin.
-          </p>
-
-          {error && <div className="mt-4 text-sm text-red-500">{error}</div>}
-
-          <form onSubmit={handleAdminLogin} className="mt-8 flex flex-1 flex-col space-y-6">
-            <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</label>
-              <input
-                type="email"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                className="mt-2 w-full border-b-2 border-gray-200 pb-2 text-lg font-semibold text-gray-900 focus:border-primary focus:outline-none"
-                placeholder="admin@anindira.com"
-                required
-                autoFocus
-              />
-            </div>
-            
-            <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Kata Sandi</label>
-              <input
-                type="password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                className="mt-2 w-full border-b-2 border-gray-200 pb-2 text-lg font-semibold text-gray-900 focus:border-primary focus:outline-none"
-                placeholder="••••••••"
-                required
-              />
-            </div>
-
-            <div className="mt-auto pb-8 pt-4">
-              <button
-                type="submit"
-                disabled={!adminEmail || !adminPassword || loading}
-                className="w-full rounded-full bg-primary py-4 font-bold text-white shadow-lg shadow-blue-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
-              >
-                {loading ? 'Memproses...' : 'Masuk Dashboard'}
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     )

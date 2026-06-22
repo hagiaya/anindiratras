@@ -16,6 +16,7 @@ import AdminUsers from './pages/admin/Users'
 import AdminTransactions from './pages/admin/Transactions'
 import AdminSettings from './pages/admin/Settings'
 import AdminNotifications from './pages/admin/Notifications'
+import AdminLogin from './pages/admin/Login'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { initializePushNotifications } from './lib/pushNotifications'
@@ -145,6 +146,9 @@ function PrivateRoute({ children, requiredRole }: { children: React.ReactNode, r
   if (loading) return <div className="flex h-screen items-center justify-center">Memuat...</div>
 
   if (!session) {
+    if (requiredRole === 'ADMIN') {
+      return <Navigate to="/admin/login" state={{ from: location }} replace />
+    }
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
@@ -200,6 +204,7 @@ function App() {
         <Route path="/call/:roomId" element={<PrivateRoute><Call /></PrivateRoute>} />
 
         {/* Admin Routes */}
+        <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminDashboard /></AdminLayout></PrivateRoute>} />
         <Route path="/admin/users" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminUsers /></AdminLayout></PrivateRoute>} />
         <Route path="/admin/transactions" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminTransactions /></AdminLayout></PrivateRoute>} />
