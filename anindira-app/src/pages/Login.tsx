@@ -20,7 +20,7 @@ export default function Login() {
   const [seatLayout, setSeatLayout] = useState('4_SEATS')
   
   const [otp, setOtp] = useState('')
-  const [step, setStep] = useState<'LANDING' | 'PHONE' | 'REGISTER_FORM' | 'METHOD' | 'OTP'>('LANDING')
+  const [step, setStep] = useState<'LANDING' | 'PHONE' | 'REGISTER_FORM' | 'METHOD' | 'OTP' | 'SUCCESS'>('LANDING')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -107,11 +107,14 @@ export default function Login() {
         })
       }
       
-      if (role === 'DRIVER' && mode === 'REGISTER') {
-        console.log('Pendaftaran berhasil! Akun Anda sedang menunggu persetujuan Admin.')
+      if (mode === 'REGISTER') {
+        setStep('SUCCESS')
+        setTimeout(() => {
+          navigate('/')
+        }, 3000)
+      } else {
+        navigate('/')
       }
-      
-      navigate('/')
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -468,6 +471,30 @@ export default function Login() {
               {loading ? 'Memverifikasi...' : 'Continue'}
             </button>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  // --- SUCCESS SCREEN ---
+  if (step === 'SUCCESS') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-primary px-6 text-center">
+        <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-full bg-white text-primary shadow-2xl">
+          <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h1 className="text-3xl font-bold text-white mb-3">Pendaftaran Berhasil!</h1>
+        <p className="text-white/80 text-lg mb-12">
+          {role === 'DRIVER' 
+            ? 'Akun Sopir Anda berhasil dibuat dan sedang menunggu persetujuan Admin.' 
+            : 'Selamat datang di AnindiraTrans. Siap untuk perjalanan Anda?'}
+        </p>
+        <div className="flex space-x-2">
+          <div className="h-2 w-2 animate-bounce rounded-full bg-white"></div>
+          <div className="h-2 w-2 animate-bounce rounded-full bg-white" style={{ animationDelay: '0.2s' }}></div>
+          <div className="h-2 w-2 animate-bounce rounded-full bg-white" style={{ animationDelay: '0.4s' }}></div>
         </div>
       </div>
     )

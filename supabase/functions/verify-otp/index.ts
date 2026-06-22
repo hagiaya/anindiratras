@@ -106,7 +106,7 @@ serve(async (req) => {
       email: user.email || `${phone}@anindiratrans.local`,
       phone: phone,
       app_metadata: { provider: 'phone' },
-      user_metadata: { role: user.role }
+      user_metadata: { role: user.role, full_name: user.full_name }
     })
       .setProtectedHeader({ alg })
       .setIssuedAt()
