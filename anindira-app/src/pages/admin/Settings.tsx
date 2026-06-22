@@ -281,6 +281,15 @@ export default function Settings() {
                       {routes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase">Posisi Bangku</label>
+                    <select required value={newSeatType} onChange={e=>setNewSeatType(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none">
+                      <option value="" disabled>Pilih Bangku...</option>
+                      <option value="DEPAN">Depan (1 Kursi)</option>
+                      <option value="TENGAH">Tengah</option>
+                      <option value="BELAKANG">Belakang</option>
+                    </select>
+                  </div>
                 </>
               )}
 
@@ -333,7 +342,9 @@ export default function Settings() {
                         </span>
                       </td>
                       <td className="px-6 py-4 font-medium text-gray-800 text-sm">
-                        {p.route_id ? routes.find(r => r.id === p.route_id)?.name : p.description || '-'}
+                        {p.route_id 
+                          ? `${routes.find(r => r.id === p.route_id)?.name} ${p.seat_type ? '(' + p.seat_type + ')' : ''}` 
+                          : p.description || '-'}
                       </td>
                       <td className="px-6 py-4 font-black text-green-600 text-sm">
                         Rp {Number(p.base_price).toLocaleString('id-ID')}
