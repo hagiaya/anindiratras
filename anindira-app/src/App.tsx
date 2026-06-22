@@ -130,17 +130,16 @@ function PrivateRoute({ children, requiredRole }: { children: React.ReactNode, r
   const location = useLocation()
 
   useEffect(() => {
-    const demoMode = localStorage.getItem('demo_mode')
-    if (demoMode) {
-      setSession({ user: { user_metadata: { role: demoMode } } })
-      setLoading(false)
-      return
-    }
-
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
     })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   if (loading) return <div className="flex h-screen items-center justify-center">Memuat...</div>
