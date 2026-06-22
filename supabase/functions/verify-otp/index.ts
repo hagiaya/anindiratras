@@ -16,7 +16,7 @@ serve(async (req) => {
     const { phone, code, isRegistering, registrationData } = await req.json()
     if (!phone || !code) {
       return new Response(JSON.stringify({ error: 'Phone and code are required' }), { 
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       })
     }
 
@@ -38,7 +38,7 @@ serve(async (req) => {
 
     if (otpError || !otpData) {
       return new Response(JSON.stringify({ error: 'Invalid or expired OTP' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
 
@@ -50,7 +50,7 @@ serve(async (req) => {
     
     if (isRegistering) {
       if (user) {
-        return new Response(JSON.stringify({ error: 'Phone number already registered' }), { status: 400, headers: corsHeaders })
+        return new Response(JSON.stringify({ error: 'Phone number already registered' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
       
       const role = registrationData?.role || 'USER'
@@ -90,7 +90,7 @@ serve(async (req) => {
       }
     } else {
       if (!user) {
-        return new Response(JSON.stringify({ error: 'Phone number not registered. Please sign up.' }), { status: 400, headers: corsHeaders })
+        return new Response(JSON.stringify({ error: 'Phone number not registered. Please sign up.' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
     }
 
@@ -127,7 +127,7 @@ serve(async (req) => {
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      status: 200,
     })
   }
 })
