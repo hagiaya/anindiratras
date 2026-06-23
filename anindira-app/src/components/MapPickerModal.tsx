@@ -51,7 +51,9 @@ function LocationMarker({ position, setPosition }: { position: L.LatLng, setPosi
   )
 }
 
-export default function MapPickerModal({ isOpen, onClose, onSelect, initialPosition = [0.5401, 123.0567], title = "Pilih Lokasi" }: MapPickerModalProps) {
+const DEFAULT_POSITION: [number, number] = [0.5401, 123.0567]
+
+export default function MapPickerModal({ isOpen, onClose, onSelect, initialPosition = DEFAULT_POSITION, title = "Pilih Lokasi" }: MapPickerModalProps) {
   // Gorontalo default center
   const [position, setPosition] = useState<L.LatLng>(new L.LatLng(initialPosition[0], initialPosition[1]))
   const [loadingAddress, setLoadingAddress] = useState(false)
@@ -61,7 +63,7 @@ export default function MapPickerModal({ isOpen, onClose, onSelect, initialPosit
     if (isOpen) {
       setPosition(new L.LatLng(initialPosition[0], initialPosition[1]))
     }
-  }, [isOpen, initialPosition])
+  }, [isOpen]) // Remove initialPosition from dependencies to prevent infinite loop
 
   if (!isOpen) return null
 
