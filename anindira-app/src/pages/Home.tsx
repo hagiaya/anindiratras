@@ -19,6 +19,8 @@ import {
 export default function Home() {
   const [session, setSession] = useState<any>(null)
   const [balance, setBalance] = useState<number>(0)
+  const [dbUser, setDbUser] = useState<any>(null)
+  const [showProfile, setShowProfile] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -29,9 +31,12 @@ export default function Home() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         setSession(session)
         if (session) {
-          supabase.from('users').select('balance').eq('id', session.user.id).single()
+          supabase.from('users').select('balance, full_name, phone').eq('id', session.user.id).single()
             .then(({ data }) => {
-              if (data) setBalance(data.balance || 0)
+              if (data) {
+                setBalance(data.balance || 0)
+                setDbUser(data)
+              }
             })
         }
       })
@@ -69,7 +74,8 @@ export default function Home() {
     return 'Selamat Malam'
   }
 
-  const userName = session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.phone || 'Pengguna'
+  const userName = dbUser?.full_name || session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.phone || 'Pengguna'
+  const userPhone = dbUser?.phone || session.user.phone || ''
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 pb-20">
@@ -89,11 +95,47 @@ export default function Home() {
             <Bell size={20} />
             <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-primary"></span>
           </button>
-          <button onClick={handleLogout} className="flex h-10 w-10 overflow-hidden rounded-full bg-white/20 items-center justify-center text-white border-2 border-white/50">
-            <UserIcon size={20} />
+          <button onClick={() => setShowProfile(true)} className="flex h-10 w-10 overflow-hidden rounded-full bg-white/20 items-center justify-center text-white border-2 border-white/50">
+            {dbUser?.full_name ? (
+              <span className="text-lg font-bold uppercase">{dbUser.full_name.charAt(0)}</span>
+            ) : (
+              <UserIcon size={20} />
+            )}
           </button>
         </div>
       </div>
+
+      {/* PROFILE MODAL */}
+      {showProfile && (
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/50" onClick={() => setShowProfile(false)}>
+          <div className="animate-slide-up w-full rounded-t-3xl bg-white px-6 pb-12 pt-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="mb-6 flex justify-center">
+              <div className="h-1.5 w-12 rounded-full bg-gray-300"></div>
+            </div>
+            
+            <div className="flex flex-col items-center">
+              <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-blue-100 text-blue-600 shadow-inner">
+                {dbUser?.full_name ? (
+                  <span className="text-4xl font-bold uppercase">{dbUser.full_name.charAt(0)}</span>
+                ) : (
+                  <UserIcon size={48} />
+                )}
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">{userName}</h2>
+              <p className="mt-1 text-gray-500">+{userPhone}</p>
+            </div>
+            
+            <div className="mt-10 space-y-3">
+              <button onClick={handleLogout} className="w-full rounded-full bg-red-50 py-3.5 font-bold text-red-600 transition active:scale-[0.98]">
+                Keluar Akun
+              </button>
+              <button onClick={() => setShowProfile(false)} className="w-full rounded-full border-2 border-gray-200 py-3.5 font-bold text-gray-600 transition active:scale-[0.98]">
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="px-4 pt-4">
 
