@@ -42,6 +42,13 @@ export default function Rental() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Promo State
+  const [promoCode, setPromoCode] = useState('')
+  const [promoData, setPromoData] = useState<any>(null)
+  const [promoLoading, setPromoLoading] = useState(false)
+  const [promoError, setPromoError] = useState('')
+  const [promoSuccess, setPromoSuccess] = useState('')
+
   const getPrice = (car: CarUnit, duration: DurationType) => {
     let price = BASE_PRICES[car]
     if (duration === 'DALAM_KOTA_24') {
@@ -50,6 +57,53 @@ export default function Rental() {
       price = price * 1.8 // e.g. 350k -> 630k
     }
     return price
+  }
+
+  const getFinalPrice = (basePrice: number) => {
+    if (!promoData) return basePrice
+    if (basePrice < promoData.min_order_amount) return basePrice
+
+    let discount = 0
+    if (promoData.discount_type === 'FIXED') {
+      discount = promoData.discount_value
+    } else if (promoData.discount_type === 'PERCENTAGE') {
+      discount = basePrice * (promoData.discount_value / 100)
+      if (promoData.max_discount_amount && discount > promoData.max_discount_amount) {
+        discount = promoData.max_discount_amount
+      }
+    }
+    return Math.max(0, basePrice - discount)
+  }
+
+  const handleApplyPromo = async () => {
+    if (!promoCode) return
+    setPromoLoading(true)
+    setPromoError('')
+    setPromoSuccess('')
+    setPromoData(null)
+
+    try {
+      const { data, error } = await supabase
+        .from('promos')
+        .select('*')
+        .eq('code', promoCode.toUpperCase())
+        .eq('is_active', true)
+        .single()
+
+      if (error || !data) throw new Error('Kode promo tidak valid atau sudah tidak aktif')
+      
+      const basePrice = selectedCar ? getPrice(selectedCar, durationType) : 0
+      if (basePrice < data.min_order_amount) {
+        throw new Error(`Minimal transaksi Rp ${data.min_order_amount.toLocaleString('id-ID')} untuk promo ini`)
+      }
+
+      setPromoData(data)
+      setPromoSuccess('Promo berhasil digunakan!')
+    } catch (err: any) {
+      setPromoError(err.message)
+    } finally {
+      setPromoLoading(false)
+    }
   }
 
   const handleCheckout = async () => {
@@ -61,7 +115,8 @@ export default function Rental() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not logged in')
 
-      const totalPrice = getPrice(selectedCar, durationType)
+      const basePrice = getPrice(selectedCar, durationType)
+      const finalPrice = getFinalPrice(basePrice)
       const durationHours = DURATIONS.find(d => d.id === durationType)?.hours || 12
 
       // Call Checkout Edge Function
@@ -75,7 +130,8 @@ export default function Rental() {
             pickup_lng: pickupLng,
             rental_duration_hours: durationHours,
             package_details: JSON.stringify({ carUnit: selectedCar, durationType }),
-            total_price: totalPrice,
+            total_price: finalPrice,
+            promo_id: promoData?.id || null
           }
         }
       })
@@ -263,12 +319,54 @@ export default function Rental() {
               </div>
 
               <div className="flex flex-col space-y-2">
-                <div className="flex justify-between items-center text-lg font-bold text-gray-900 mt-2">
+                {promoData && (
+                  <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-2">
+                    <span>Diskon Promo ({promoData.code})</span>
+                    <span>- Rp {(getPrice(selectedCar, durationType) - getFinalPrice(getPrice(selectedCar, durationType))).toLocaleString('id-ID')}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-lg font-bold text-gray-900 mt-2 border-t border-gray-100 pt-2">
                   <span>Total Harga Sewa</span>
-                  <span className="text-purple-600">Rp {getPrice(selectedCar, durationType).toLocaleString('id-ID')}</span>
+                  <div className="text-right">
+                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {getPrice(selectedCar, durationType).toLocaleString('id-ID')}</span>}
+                    <span className="text-purple-600">Rp {getFinalPrice(getPrice(selectedCar, durationType)).toLocaleString('id-ID')}</span>
+                  </div>
                 </div>
                 <p className="text-[10px] text-gray-400 text-right">*Belum termasuk BBM, tol, dan parkir</p>
               </div>
+            </div>
+
+            {/* PROMO SECTION */}
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Makin Hemat dengan Promo</h2>
+              <div className="flex space-x-2">
+                <input 
+                  type="text" 
+                  value={promoCode} 
+                  onChange={e => setPromoCode(e.target.value.toUpperCase())}
+                  placeholder="Masukkan Kode Promo" 
+                  className="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:border-purple-500 outline-none uppercase font-bold"
+                  disabled={!!promoData}
+                />
+                {!promoData ? (
+                  <button 
+                    onClick={handleApplyPromo}
+                    disabled={!promoCode || promoLoading}
+                    className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-bold transition active:scale-95 disabled:opacity-50"
+                  >
+                    {promoLoading ? 'Cek...' : 'Gunakan'}
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => { setPromoData(null); setPromoCode(''); setPromoSuccess(''); }}
+                    className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm font-bold transition active:scale-95"
+                  >
+                    Batal
+                  </button>
+                )}
+              </div>
+              {promoError && <p className="text-xs text-red-500 mt-2 font-medium">{promoError}</p>}
+              {promoSuccess && <p className="text-xs text-green-600 mt-2 font-medium">{promoSuccess}</p>}
             </div>
 
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">

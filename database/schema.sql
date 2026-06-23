@@ -87,9 +87,11 @@ CREATE TABLE public.orders (
   -- Status and Payments
   status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ASSIGNED', 'ON_THE_WAY', 'COMPLETED', 'CANCELLED')),
   total_price DECIMAL(12, 2) NOT NULL,
+  payment_method TEXT,
   payment_status VARCHAR(20) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PAID', 'REFUNDED')),
   midtrans_trx_id VARCHAR(100),
   payment_url TEXT,
+  promo_id UUID, -- References promos table
   
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -195,6 +197,32 @@ USING (auth.jwt() ->> 'role' = 'ADMIN');
 
 CREATE POLICY "Admins can delete bank accounts" 
 ON public.bank_accounts FOR DELETE 
+USING (auth.jwt() ->> 'role' = 'ADMIN');
+
+-- PROMOS TABLE
+CREATE TABLE public.promos (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  code VARCHAR(50) UNIQUE NOT NULL,
+  description TEXT,
+  discount_type VARCHAR(20) DEFAULT 'PERCENTAGE' CHECK (discount_type IN ('PERCENTAGE', 'FIXED')),
+  discount_value DECIMAL(12, 2) NOT NULL, -- percentage or fixed amount
+  max_discount_amount DECIMAL(12, 2), -- maximum discount if percentage
+  min_order_amount DECIMAL(12, 2) DEFAULT 0,
+  start_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  end_date TIMESTAMP WITH TIME ZONE,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.promos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view active promos" 
+ON public.promos FOR SELECT 
+USING (is_active = true OR auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Admins can manage promos" 
+ON public.promos FOR ALL
 USING (auth.jwt() ->> 'role' = 'ADMIN');
 
 -- STORAGE BUCKETS

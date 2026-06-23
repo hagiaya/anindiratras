@@ -21,7 +21,7 @@ export default function Home() {
   const [balance, setBalance] = useState<number>(0)
   const [dbUser, setDbUser] = useState<any>(null)
   const [showProfile, setShowProfile] = useState(false)
-  const [totalSavings, setTotalSavings] = useState<number>(0)
+  const [promos, setPromos] = useState<any[]>([])
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -42,6 +42,16 @@ export default function Home() {
         }
       })
     }
+
+    // Fetch active promos
+    supabase.from('promos')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        if (data) setPromos(data)
+      })
   }, [])
 
   const handleLogout = async () => {
@@ -75,8 +85,10 @@ export default function Home() {
     return 'Selamat Malam'
   }
 
-  const userName = dbUser?.full_name || session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.phone || 'Pengguna'
+  const displayUserName = dbUser?.full_name || session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.phone || 'Pengguna'
   const userPhone = dbUser?.phone || session.user.phone || ''
+  
+  const totalSavings = 0
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 pb-20">
@@ -122,7 +134,7 @@ export default function Home() {
                   <UserIcon size={48} />
                 )}
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">{userName}</h2>
+              <p className="text-xl font-bold text-gray-900">{displayUserName}</p>
               <p className="mt-1 text-gray-500">+{userPhone}</p>
             </div>
             
@@ -144,9 +156,9 @@ export default function Home() {
         <div className="mb-6 overflow-hidden rounded-3xl bg-blue-600 shadow-lg shadow-blue-200">
           <div className="bg-blue-700/50 px-5 py-4">
             <div className="mb-4">
-              <p className="text-blue-100 text-sm">{getGreeting()},</p>
-              <h2 className="text-xl font-bold text-white">{userName}</h2>
-            </div>
+                <p className="text-blue-100 mb-1 font-medium">{getGreeting()},</p>
+                <h2 className="text-2xl font-bold text-white leading-tight">{displayUserName}</h2>
+              </div>
             
             <div className="flex items-end justify-between">
               <div>
@@ -191,25 +203,30 @@ export default function Home() {
         </div>
 
         {/* PROMO CAROUSEL */}
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-gray-900">Promo Menarik</h2>
-          <button className="text-sm font-bold text-primary">Lihat Semua</button>
-        </div>
-        
-        <div className="-mx-4 flex space-x-4 overflow-x-auto px-4 pb-4 scrollbar-hide">
-          <div className="relative h-36 min-w-[280px] shrink-0 overflow-hidden rounded-3xl bg-gradient-to-r from-orange-400 to-red-500 shadow-sm">
-            <div className="absolute inset-0 p-5 flex flex-col justify-center">
-              <span className="rounded-full bg-white/20 w-fit px-2 py-1 text-[10px] font-bold text-white mb-2">PROMO BARU</span>
-              <h3 className="text-lg font-bold text-white w-2/3 leading-tight">Diskon 50% Carpool Pertama!</h3>
+        {promos.length > 0 && (
+          <>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Promo Menarik</h2>
+              <button className="text-sm font-bold text-primary">Lihat Semua</button>
             </div>
-          </div>
-          <div className="relative h-36 min-w-[280px] shrink-0 overflow-hidden rounded-3xl bg-gradient-to-r from-teal-400 to-emerald-500 shadow-sm">
-             <div className="absolute inset-0 p-5 flex flex-col justify-center">
-              <span className="rounded-full bg-white/20 w-fit px-2 py-1 text-[10px] font-bold text-white mb-2">BANDARA</span>
-              <h3 className="text-lg font-bold text-white w-2/3 leading-tight">Gratis Jemput di Area Kota</h3>
+            
+            <div className="-mx-4 flex space-x-4 overflow-x-auto px-4 pb-4 scrollbar-hide">
+              {promos.map((promo, idx) => (
+                <div key={promo.id} className={`relative h-36 min-w-[280px] shrink-0 overflow-hidden rounded-3xl shadow-sm ${idx % 2 === 0 ? 'bg-gradient-to-r from-orange-400 to-red-500' : 'bg-gradient-to-r from-teal-400 to-emerald-500'}`}>
+                  <div className="absolute inset-0 p-5 flex flex-col justify-center">
+                    <span className="rounded-full bg-white/20 w-fit px-3 py-1 text-[11px] font-bold text-white mb-2 tracking-wider border border-white/30">
+                      KODE: {promo.code}
+                    </span>
+                    <h3 className="text-lg font-bold text-white w-3/4 leading-tight">
+                      {promo.discount_type === 'PERCENTAGE' ? `Diskon ${promo.discount_value}%` : `Potongan Rp ${promo.discount_value.toLocaleString('id-ID')}`}
+                    </h3>
+                    {promo.description && <p className="text-white/80 text-xs mt-1 line-clamp-1">{promo.description}</p>}
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        </div>
+          </>
+        )}
 
         {/* INFO & HELP CENTER */}
         <div className="mt-8 mb-6">

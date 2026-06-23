@@ -26,10 +26,64 @@ export default function Airport() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Promo State
+  const [promoCode, setPromoCode] = useState('')
+  const [promoData, setPromoData] = useState<any>(null)
+  const [promoLoading, setPromoLoading] = useState(false)
+  const [promoError, setPromoError] = useState('')
+  const [promoSuccess, setPromoSuccess] = useState('')
+
   // Fixed price for airport transfer
   const basePrice = 150000
   const airportLat = 0.6360
   const airportLng = 122.8500
+
+  const getFinalPrice = (totalBase: number) => {
+    if (!promoData) return totalBase
+    if (totalBase < promoData.min_order_amount) return totalBase
+
+    let discount = 0
+    if (promoData.discount_type === 'FIXED') {
+      discount = promoData.discount_value
+    } else if (promoData.discount_type === 'PERCENTAGE') {
+      discount = totalBase * (promoData.discount_value / 100)
+      if (promoData.max_discount_amount && discount > promoData.max_discount_amount) {
+        discount = promoData.max_discount_amount
+      }
+    }
+    return Math.max(0, totalBase - discount)
+  }
+
+  const handleApplyPromo = async () => {
+    if (!promoCode) return
+    setPromoLoading(true)
+    setPromoError('')
+    setPromoSuccess('')
+    setPromoData(null)
+
+    try {
+      const { data, error } = await supabase
+        .from('promos')
+        .select('*')
+        .eq('code', promoCode.toUpperCase())
+        .eq('is_active', true)
+        .single()
+
+      if (error || !data) throw new Error('Kode promo tidak valid atau sudah tidak aktif')
+      
+      const currentBase = basePrice * selectedSeats.length
+      if (currentBase < data.min_order_amount) {
+        throw new Error(`Minimal transaksi Rp ${data.min_order_amount.toLocaleString('id-ID')} untuk promo ini`)
+      }
+
+      setPromoData(data)
+      setPromoSuccess('Promo berhasil digunakan!')
+    } catch (err: any) {
+      setPromoError(err.message)
+    } finally {
+      setPromoLoading(false)
+    }
+  }
 
   // Set default values based on direction
   useEffect(() => {
@@ -64,7 +118,8 @@ export default function Airport() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not logged in')
 
-      const totalPrice = basePrice * selectedSeats.length
+      const currentBase = basePrice * selectedSeats.length
+      const totalPrice = getFinalPrice(currentBase)
 
       // Call Checkout Edge Function
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
@@ -80,6 +135,7 @@ export default function Airport() {
             dropoff_lng: dropoffLng,
             seat_selected: JSON.stringify(selectedSeats),
             total_price: totalPrice,
+            promo_id: promoData?.id || null
           }
         }
       })
@@ -300,9 +356,51 @@ export default function Airport() {
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-center justify-between font-bold text-gray-800">
                 <span>Total Harga ({selectedSeats.length} Kursi)</span>
-                <span>Rp {(basePrice * selectedSeats.length).toLocaleString('id-ID')}</span>
+                <div className="text-right">
+                  {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {(basePrice * selectedSeats.length).toLocaleString('id-ID')}</span>}
+                  <span className="text-primary">Rp {getFinalPrice(basePrice * selectedSeats.length).toLocaleString('id-ID')}</span>
+                </div>
               </div>
+              {promoData && (
+                <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-1">
+                  <span>Diskon Promo ({promoData.code})</span>
+                  <span>- Rp {((basePrice * selectedSeats.length) - getFinalPrice(basePrice * selectedSeats.length)).toLocaleString('id-ID')}</span>
+                </div>
+              )}
               <p className="mt-1 text-xs text-blue-600 font-medium">*Tarif tetap untuk area bandara</p>
+            </div>
+
+            {/* PROMO SECTION */}
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Makin Hemat dengan Promo</h2>
+              <div className="flex space-x-2">
+                <input 
+                  type="text" 
+                  value={promoCode} 
+                  onChange={e => setPromoCode(e.target.value.toUpperCase())}
+                  placeholder="Masukkan Kode Promo" 
+                  className="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:border-primary outline-none uppercase font-bold"
+                  disabled={!!promoData || selectedSeats.length === 0}
+                />
+                {!promoData ? (
+                  <button 
+                    onClick={handleApplyPromo}
+                    disabled={!promoCode || promoLoading || selectedSeats.length === 0}
+                    className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-bold transition active:scale-95 disabled:opacity-50"
+                  >
+                    {promoLoading ? 'Cek...' : 'Gunakan'}
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => { setPromoData(null); setPromoCode(''); setPromoSuccess(''); }}
+                    className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm font-bold transition active:scale-95"
+                  >
+                    Batal
+                  </button>
+                )}
+              </div>
+              {promoError && <p className="text-xs text-red-500 mt-2 font-medium">{promoError}</p>}
+              {promoSuccess && <p className="text-xs text-green-600 mt-2 font-medium">{promoSuccess}</p>}
             </div>
 
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">

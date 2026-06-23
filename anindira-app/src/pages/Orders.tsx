@@ -15,6 +15,12 @@ export default function Orders() {
   const [paymentMethod, setPaymentMethod] = useState<'ANINDIRAPAY' | 'TRANSFER'>('ANINDIRAPAY')
   const [selectedBankId, setSelectedBankId] = useState('')
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  // Review Modal State
+  const [userReviews, setUserReviews] = useState<string[]>([])
+  const [reviewOrder, setReviewOrder] = useState<any>(null)
+  const [rating, setRating] = useState(5)
+  const [comment, setComment] = useState('')
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   
   const navigate = useNavigate()
@@ -44,6 +50,16 @@ export default function Orders() {
         .single()
       
       if (userData) setBalance(userData.balance || 0)
+
+      // Fetch user's submitted reviews
+      const { data: reviewsData } = await supabase
+        .from('reviews')
+        .select('order_id')
+        .eq('user_id', session.user.id)
+      
+      if (reviewsData) {
+        setUserReviews(reviewsData.map(r => r.order_id))
+      }
 
       // Fetch Banks
       const { data: banksData } = await supabase
@@ -190,6 +206,34 @@ export default function Orders() {
     }
   }
 
+  const submitReview = async () => {
+    if (!reviewOrder || !reviewOrder.driver_id) return
+    setIsSubmittingReview(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      const { error } = await supabase.from('reviews').insert({
+        order_id: reviewOrder.id,
+        user_id: session.user.id,
+        driver_id: reviewOrder.driver_id,
+        rating,
+        comment
+      })
+
+      if (error) throw error
+
+      alert('Terima kasih atas ulasan Anda!')
+      setReviewOrder(null)
+      setUserReviews([...userReviews, reviewOrder.id])
+    } catch (err) {
+      console.error(err)
+      alert('Gagal mengirim ulasan')
+    } finally {
+      setIsSubmittingReview(false)
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 pb-20">
       {/* Header */}
@@ -252,6 +296,19 @@ export default function Orders() {
                     className="w-full rounded-xl bg-primary py-2 text-sm font-bold text-white transition active:scale-[0.98]"
                   >
                     Bayar Sekarang
+                  </button>
+                )}
+                
+                {order.status === 'COMPLETED' && order.driver_id && !userReviews.includes(order.id) && (
+                  <button 
+                    onClick={() => {
+                      setReviewOrder(order);
+                      setRating(5);
+                      setComment('');
+                    }}
+                    className="w-full mt-2 rounded-xl border-2 border-orange-500 bg-orange-50 py-2 text-sm font-bold text-orange-600 transition active:scale-[0.98]"
+                  >
+                    Beri Ulasan Sopir
                   </button>
                 )}
               </div>
@@ -365,6 +422,53 @@ export default function Orders() {
               className="w-full rounded-xl bg-primary py-3.5 font-bold text-white shadow-lg shadow-blue-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               {isUploading ? 'Memproses...' : 'Konfirmasi Pembayaran'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Review Modal */}
+      {reviewOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl relative animate-in zoom-in-95">
+            <button 
+              onClick={() => setReviewOrder(null)}
+              className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={24} />
+            </button>
+            
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Beri Ulasan</h2>
+            <p className="text-sm text-gray-500 mb-6">Bagaimana pengalaman Anda dengan layanan ini?</p>
+            
+            <div className="flex justify-center space-x-2 mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setRating(star)}
+                  className={`text-4xl transition-transform active:scale-90 ${star <= rating ? 'text-yellow-400' : 'text-gray-200'}`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-6">
+              <label className="text-sm font-bold text-gray-700 block mb-2">Komentar Tambahan (Opsional)</label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Pelayanan sopir sangat baik..."
+                className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:border-primary outline-none min-h-[100px] resize-none"
+              ></textarea>
+            </div>
+
+            <button
+              disabled={isSubmittingReview}
+              onClick={submitReview}
+              className="w-full rounded-xl bg-primary py-3.5 font-bold text-white shadow-lg shadow-blue-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+            >
+              {isSubmittingReview ? 'Mengirim...' : 'Kirim Ulasan'}
             </button>
           </div>
         </div>

@@ -10,11 +10,14 @@ export default function DriverDashboard() {
   const [driverBalance, setDriverBalance] = useState(0)
   const [orders, setOrders] = useState<any[]>([])
   const [history, setHistory] = useState<any[]>([])
+  const [reviews, setReviews] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'RIWAYAT' | 'PROFIL'>('DASHBOARD')
 
   const totalEarnings = history.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0)
   const totalTrips = history.length
+  
+  const averageRating = reviews.length > 0 ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : '0.0'
 
   const handleCall = async (order: any) => {
     if (localStorage.getItem('demo_mode')) {
@@ -89,10 +92,10 @@ export default function DriverDashboard() {
     setSession(currentSession)
 
     // Fetch driver profile status
-    const { data: userData } = await supabase.from('users').select('status, driver_balance').eq('id', currentSession.user.id).single()
+    const { data: userData } = await supabase.from('users').select('status, balance').eq('id', currentSession.user.id).single()
     if (userData) {
       setDriverStatus(userData.status as 'ACTIVE' | 'INACTIVE')
-      setDriverBalance(userData.driver_balance || 0)
+      setDriverBalance(userData.balance || 0)
     }
 
     // Fetch assigned orders
@@ -121,6 +124,15 @@ export default function DriverDashboard() {
       .limit(10)
       
     if (historyData) setHistory(historyData)
+
+    // Fetch reviews
+    const { data: reviewsData } = await supabase
+      .from('reviews')
+      .select('*, users!reviews_user_id_fkey(full_name)')
+      .eq('driver_id', driverId)
+      .order('created_at', { ascending: false })
+      
+    if (reviewsData) setReviews(reviewsData)
 
     setLoading(false)
   }
@@ -364,10 +376,41 @@ export default function DriverDashboard() {
               <span className="text-xs font-bold text-purple-600 uppercase mb-1 text-center">Saldo Pay</span>
               <span className="text-lg font-black text-purple-700">Rp {driverBalance.toLocaleString('id-ID')}</span>
             </div>
-            <div className="bg-blue-50 rounded-2xl p-4 flex flex-col items-center border border-blue-100 col-span-2">
+            <div className="bg-blue-50 rounded-2xl p-4 flex flex-col items-center border border-blue-100">
               <span className="text-xs font-bold text-blue-600 uppercase mb-1">Total Perjalanan</span>
               <span className="text-lg font-black text-blue-700">{totalTrips} Trip</span>
             </div>
+            <div className="bg-yellow-50 rounded-2xl p-4 flex flex-col items-center border border-yellow-100">
+              <span className="text-xs font-bold text-yellow-600 uppercase mb-1 text-center">Rating Sopir</span>
+              <div className="flex items-center space-x-1">
+                <span className="text-lg font-black text-yellow-700">{averageRating}</span>
+                <span className="text-yellow-500 text-sm">★</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Ulasan Terbaru */}
+          <div className="w-full mt-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Ulasan Terbaru ({reviews.length})</h4>
+            {reviews.length === 0 ? (
+              <p className="text-xs text-gray-400 font-medium text-center py-4">Belum ada ulasan.</p>
+            ) : (
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                {reviews.map(r => (
+                  <div key={r.id} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="text-xs font-bold text-gray-800">{r.users?.full_name || 'Pelanggan'}</p>
+                      <div className="flex text-yellow-400 text-xs">
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <span key={star} className={star <= r.rating ? 'text-yellow-400' : 'text-gray-200'}>★</span>
+                        ))}
+                      </div>
+                    </div>
+                    {r.comment && <p className="text-xs text-gray-600 italic">"{r.comment}"</p>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           
           <div className="w-full mt-6 space-y-3">
