@@ -104,10 +104,12 @@ export default function Login() {
       
       let userRole: string = mode === 'REGISTER' ? role : 'USER'
       if (data?.session) {
-        const { data: setSessionData } = await supabase.auth.setSession({
+        const { data: setSessionData, error: setSessionError } = await supabase.auth.setSession({
           access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token
+          refresh_token: data.session.refresh_token || 'dummy-refresh-token'
         })
+        if (setSessionError) throw new Error(setSessionError.message)
+        
         if (setSessionData.user) {
           userRole = setSessionData.user.user_metadata?.role || userRole
         }
