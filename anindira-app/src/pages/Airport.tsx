@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CreditCard, Plane } from 'lucide-react'
+import { ArrowLeft, MapPin, CreditCard, Plane, Wallet, Banknote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
 
@@ -21,6 +21,7 @@ export default function Airport() {
   
   const [carType, setCarType] = useState('4_SEATS')
   const [selectedSeats, setSelectedSeats] = useState<number[]>([])
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -65,39 +66,28 @@ export default function Airport() {
 
       const totalPrice = basePrice * selectedSeats.length
 
-      // Insert Order
-      const { data: order, error: orderError } = await supabase.from('orders').insert({
-        user_id: user.id,
-        order_type: 'AIRPORT',
-        pickup_address: pickup,
-        pickup_lat: pickupLat,
-        pickup_lng: pickupLng,
-        dropoff_address: dropoff,
-        dropoff_lat: dropoffLat,
-        dropoff_lng: dropoffLng,
-        seat_selected: JSON.stringify(selectedSeats),
-        total_price: totalPrice,
-      }).select().single()
-
-      if (orderError) throw orderError
-
-      // Get Midtrans Token
-      const { data: midtransData, error: midtransError } = await supabase.functions.invoke('midtrans-token', {
+      // Call Checkout Edge Function
+      const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
         body: {
-          orderId: order.id,
-          amount: totalPrice,
-          customerDetails: {
-            first_name: "User",
-            phone: user.phone || ''
+          paymentMethod,
+          orderPayload: {
+            order_type: 'AIRPORT',
+            pickup_address: pickup,
+            pickup_lat: pickupLat,
+            pickup_lng: pickupLng,
+            dropoff_address: dropoff,
+            dropoff_lat: dropoffLat,
+            dropoff_lng: dropoffLng,
+            seat_selected: JSON.stringify(selectedSeats),
+            total_price: totalPrice,
           }
         }
       })
 
-      if (midtransError) throw new Error(midtransError.message || 'Payment error');
-      if (midtransData?.error) throw new Error(midtransData.error);
+      if (checkoutError) throw new Error(checkoutError.message || 'Gagal membuat pesanan')
+      if (checkoutData?.error) throw new Error(checkoutData.error)
 
-      // Redirect to Midtrans Snap
-      window.location.href = midtransData.redirect_url
+      navigate('/orders')
 
     } catch (err: any) {
       setError(err.message || 'Terjadi kesalahan')
@@ -313,6 +303,35 @@ export default function Airport() {
                 <span>Rp {(basePrice * selectedSeats.length).toLocaleString('id-ID')}</span>
               </div>
               <p className="mt-1 text-xs text-blue-600 font-medium">*Tarif tetap untuk area bandara</p>
+            </div>
+
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Metode Pembayaran</h2>
+              <div className="space-y-3">
+                <label className={`flex cursor-pointer items-center justify-between rounded-xl border-2 p-4 transition ${paymentMethod === 'CASH' ? 'border-primary bg-blue-50' : 'border-gray-100'}`}>
+                  <div className="flex items-center space-x-3">
+                    <Banknote className={paymentMethod === 'CASH' ? 'text-primary' : 'text-gray-400'} />
+                    <span className="font-bold text-gray-800">Tunai (Cash)</span>
+                  </div>
+                  <input type="radio" name="payment" checked={paymentMethod === 'CASH'} onChange={() => setPaymentMethod('CASH')} className="hidden" />
+                  <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'CASH' ? 'border-primary' : 'border-gray-300'}`}>
+                    {paymentMethod === 'CASH' && <div className="h-2.5 w-2.5 rounded-full bg-primary" />}
+                  </div>
+                </label>
+
+                <label className={`flex cursor-pointer items-center justify-between rounded-xl border-2 p-4 transition ${paymentMethod === 'TRANSFER' ? 'border-primary bg-blue-50' : 'border-gray-100'}`}>
+                  <div className="flex items-center space-x-3">
+                    <Wallet className={paymentMethod === 'TRANSFER' ? 'text-primary' : 'text-gray-400'} />
+                    <div>
+                      <p className="font-bold text-gray-800">Saldo AnindiraPay</p>
+                    </div>
+                  </div>
+                  <input type="radio" name="payment" checked={paymentMethod === 'TRANSFER'} onChange={() => setPaymentMethod('TRANSFER')} className="hidden" />
+                  <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'TRANSFER' ? 'border-primary' : 'border-gray-300'}`}>
+                    {paymentMethod === 'TRANSFER' && <div className="h-2.5 w-2.5 rounded-full bg-primary" />}
+                  </div>
+                </label>
+              </div>
             </div>
 
             <button

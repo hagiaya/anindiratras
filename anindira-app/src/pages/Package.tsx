@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, Package as PackageIcon, User, Phone, CreditCard } from 'lucide-react'
+import { ArrowLeft, MapPin, Package as PackageIcon, User, Phone, CreditCard, Wallet, Banknote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
 
@@ -28,6 +28,7 @@ export default function Package() {
   // Detail Barang
   const [itemName, setItemName] = useState('')
   const [weight, setWeight] = useState<'KECIL' | 'SEDANG' | 'BESAR'>('KECIL')
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -67,39 +68,29 @@ export default function Package() {
 
       const totalPrice = basePrice + 1000 // with insurance
 
-      // Insert Order
-      const { data: order, error: orderError } = await supabase.from('orders').insert({
-        user_id: userId,
-        order_type: 'TITIP_BARANG',
-        pickup_address: pickup,
-        pickup_lat: pickupLat,
-        pickup_lng: pickupLng,
-        dropoff_address: dropoff,
-        dropoff_lat: dropoffLat,
-        dropoff_lng: dropoffLng,
-        package_details: JSON.stringify({ senderName, senderPhone, receiverName, receiverPhone, itemName, weight }),
-        total_price: totalPrice,
-      }).select().single()
-
-      if (orderError) throw orderError
-
-      // Get Midtrans Token
-      const { data: midtransData, error: midtransError } = await supabase.functions.invoke('midtrans-token', {
+      // Call Checkout Edge Function
+      const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
         body: {
-          orderId: order.id,
-          amount: totalPrice,
-          customerDetails: {
-            first_name: "User",
-            phone: '000'
+          paymentMethod,
+          orderPayload: {
+            order_type: 'TITIP_BARANG',
+            pickup_address: pickup,
+            pickup_lat: pickupLat,
+            pickup_lng: pickupLng,
+            dropoff_address: dropoff,
+            dropoff_lat: dropoffLat,
+            dropoff_lng: dropoffLng,
+            package_details: JSON.stringify({ senderName, senderPhone, receiverName, receiverPhone, itemName, weight }),
+            total_price: totalPrice,
           }
         }
       })
 
-      if (midtransError) throw new Error(midtransError.message || 'Payment error');
-      if (midtransData?.error) throw new Error(midtransData.error);
+      if (checkoutError) throw new Error(checkoutError.message || 'Gagal membuat pesanan')
+      if (checkoutData?.error) throw new Error(checkoutData.error)
 
-      // Redirect to Midtrans Snap
-      window.location.href = midtransData.redirect_url
+      // Redirect to orders
+      navigate('/orders')
     } catch (err: any) {
       setError(err.message || 'Terjadi kesalahan')
     } finally {
@@ -323,6 +314,35 @@ export default function Package() {
                   <span>Total Tagihan</span>
                   <span className="text-orange-500">Rp {(basePrice + 1000).toLocaleString('id-ID')}</span>
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Metode Pembayaran</h2>
+              <div className="space-y-3">
+                <label className={`flex cursor-pointer items-center justify-between rounded-xl border-2 p-4 transition ${paymentMethod === 'CASH' ? 'border-orange-500 bg-orange-50' : 'border-gray-100'}`}>
+                  <div className="flex items-center space-x-3">
+                    <Banknote className={paymentMethod === 'CASH' ? 'text-orange-500' : 'text-gray-400'} />
+                    <span className="font-bold text-gray-800">Tunai (Cash)</span>
+                  </div>
+                  <input type="radio" name="payment" checked={paymentMethod === 'CASH'} onChange={() => setPaymentMethod('CASH')} className="hidden" />
+                  <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'CASH' ? 'border-orange-500' : 'border-gray-300'}`}>
+                    {paymentMethod === 'CASH' && <div className="h-2.5 w-2.5 rounded-full bg-orange-500" />}
+                  </div>
+                </label>
+
+                <label className={`flex cursor-pointer items-center justify-between rounded-xl border-2 p-4 transition ${paymentMethod === 'TRANSFER' ? 'border-orange-500 bg-orange-50' : 'border-gray-100'}`}>
+                  <div className="flex items-center space-x-3">
+                    <Wallet className={paymentMethod === 'TRANSFER' ? 'text-orange-500' : 'text-gray-400'} />
+                    <div>
+                      <p className="font-bold text-gray-800">Saldo AnindiraPay</p>
+                    </div>
+                  </div>
+                  <input type="radio" name="payment" checked={paymentMethod === 'TRANSFER'} onChange={() => setPaymentMethod('TRANSFER')} className="hidden" />
+                  <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${paymentMethod === 'TRANSFER' ? 'border-orange-500' : 'border-gray-300'}`}>
+                    {paymentMethod === 'TRANSFER' && <div className="h-2.5 w-2.5 rounded-full bg-orange-500" />}
+                  </div>
+                </label>
               </div>
             </div>
 

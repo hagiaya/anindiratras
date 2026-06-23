@@ -7,6 +7,7 @@ export default function DriverDashboard() {
   const navigate = useNavigate()
   const [session, setSession] = useState<any>(null)
   const [driverStatus, setDriverStatus] = useState<'ACTIVE' | 'INACTIVE'>('INACTIVE')
+  const [driverBalance, setDriverBalance] = useState(0)
   const [orders, setOrders] = useState<any[]>([])
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -88,9 +89,10 @@ export default function DriverDashboard() {
     setSession(currentSession)
 
     // Fetch driver profile status
-    const { data: userData } = await supabase.from('users').select('status').eq('id', currentSession.user.id).single()
+    const { data: userData } = await supabase.from('users').select('status, driver_balance').eq('id', currentSession.user.id).single()
     if (userData) {
       setDriverStatus(userData.status as 'ACTIVE' | 'INACTIVE')
+      setDriverBalance(userData.driver_balance || 0)
     }
 
     // Fetch assigned orders
@@ -139,19 +141,36 @@ export default function DriverDashboard() {
       return
     }
 
-    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
-    if (!error) {
-      if (newStatus === 'COMPLETED') {
+    if (newStatus === 'COMPLETED') {
+      const isConfirmed = window.confirm('Apakah Anda yakin pesanan sudah selesai? Komisi 10% akan dipotong dari saldo AnindiraPay Anda.');
+      if (!isConfirmed) return;
+
+      try {
+        const { data, error } = await supabase.functions.invoke('complete-order', {
+          body: { orderId }
+        })
+        if (error) throw new Error(error.message)
+        if (data?.error) throw new Error(data.error)
+        
         const completedOrder = orders.find(o => o.id === orderId)
         if (completedOrder) {
           setHistory([{...completedOrder, status: 'COMPLETED'}, ...history])
         }
         setOrders(orders.filter(o => o.id !== orderId))
-      } else {
-        setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
+        
+        // Refresh data (including balance)
+        checkSessionAndFetchData()
+        alert('Pesanan berhasil diselesaikan.')
+      } catch (err: any) {
+        alert(err.message || 'Gagal menyelesaikan pesanan. Pastikan saldo AnindiraPay Anda mencukupi untuk potongan komisi 10%.')
       }
     } else {
-      alert('Gagal mengubah status pesanan')
+      const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
+      if (!error) {
+        setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
+      } else {
+        alert('Gagal mengubah status pesanan')
+      }
     }
   }
 
@@ -338,10 +357,14 @@ export default function DriverDashboard() {
           {/* Statistik Pendapatan */}
           <div className="w-full mt-6 mb-2 grid grid-cols-2 gap-4">
             <div className="bg-green-50 rounded-2xl p-4 flex flex-col items-center border border-green-100">
-              <span className="text-xs font-bold text-green-600 uppercase mb-1">Total Pendapatan</span>
+              <span className="text-xs font-bold text-green-600 uppercase mb-1 text-center">Total Pendapatan</span>
               <span className="text-lg font-black text-green-700">Rp {totalEarnings.toLocaleString('id-ID')}</span>
             </div>
-            <div className="bg-blue-50 rounded-2xl p-4 flex flex-col items-center border border-blue-100">
+            <div className="bg-purple-50 rounded-2xl p-4 flex flex-col items-center border border-purple-100">
+              <span className="text-xs font-bold text-purple-600 uppercase mb-1 text-center">Saldo Pay</span>
+              <span className="text-lg font-black text-purple-700">Rp {driverBalance.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="bg-blue-50 rounded-2xl p-4 flex flex-col items-center border border-blue-100 col-span-2">
               <span className="text-xs font-bold text-blue-600 uppercase mb-1">Total Perjalanan</span>
               <span className="text-lg font-black text-blue-700">{totalTrips} Trip</span>
             </div>
