@@ -101,7 +101,8 @@ export default function Carpool() {
         }
       })
 
-      if (midtransError || midtransData?.error) throw new Error('Payment error')
+      if (midtransError) throw new Error(midtransError.message || 'Payment error');
+      if (midtransData?.error) throw new Error(midtransData.error);
 
       // Redirect to Midtrans Snap
       window.location.href = midtransData.redirect_url
