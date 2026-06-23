@@ -21,6 +21,7 @@ export default function Home() {
   const [balance, setBalance] = useState<number>(0)
   const [dbUser, setDbUser] = useState<any>(null)
   const [showProfile, setShowProfile] = useState(false)
+  const [totalSavings, setTotalSavings] = useState<number>(0)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -157,7 +158,7 @@ export default function Home() {
               </div>
               <div className="text-right">
                 <p className="text-blue-100 text-xs mb-1">Total Hemat</p>
-                <span className="text-sm font-bold text-green-300">Rp 25.000</span>
+                <span className="text-sm font-bold text-green-300">Rp {totalSavings.toLocaleString('id-ID')}</span>
               </div>
             </div>
           </div>
