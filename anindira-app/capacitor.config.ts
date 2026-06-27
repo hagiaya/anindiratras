@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.anindiratrans.app',
+  appId: 'com.anindira.anindiraapps',
   appName: 'anindira-app',
   webDir: 'dist',
   plugins: {

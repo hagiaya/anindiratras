@@ -18,6 +18,7 @@ import AdminSettings from './pages/admin/Settings'
 import AdminNotifications from './pages/admin/Notifications'
 import AdminPromos from './pages/admin/Promos'
 import AdminLogin from './pages/admin/Login'
+import DeleteDataRequest from './pages/DeleteDataRequest'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { initializePushNotifications } from './lib/pushNotifications'
@@ -192,6 +193,7 @@ function App() {
       <IncomingCallAlert />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/permintaanhapusdata" element={<DeleteDataRequest />} />
         
         {/* User / Driver Routes */}
         <Route path="/" element={<PrivateRoute><Home /></PrivateRoute>} />
