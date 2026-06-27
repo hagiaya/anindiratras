@@ -19,6 +19,7 @@ import AdminNotifications from './pages/admin/Notifications'
 import AdminPromos from './pages/admin/Promos'
 import AdminLogin from './pages/admin/Login'
 import DeleteDataRequest from './pages/DeleteDataRequest'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { initializePushNotifications } from './lib/pushNotifications'
@@ -194,6 +195,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/permintaanhapusdata" element={<DeleteDataRequest />} />
+        <Route path="/kebijakanprivasi" element={<PrivacyPolicy />} />
         
         {/* User / Driver Routes */}
         <Route path="/" element={<PrivateRoute><Home /></PrivateRoute>} />
