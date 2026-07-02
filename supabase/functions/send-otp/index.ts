@@ -19,6 +19,13 @@ serve(async (req) => {
       })
     }
 
+    // Bypass for Google Test Account
+    if (phone === '80000000000') {
+      return new Response(JSON.stringify({ success: true, message: 'OTP sent (Test Account)' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

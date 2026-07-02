@@ -25,25 +25,29 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Verify OTP
-    const { data: otpData, error: otpError } = await supabaseAdmin
-      .from('otp_codes')
-      .select('*')
-      .eq('phone', phone)
-      .eq('code', code)
-      .gte('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
+    const isTestAccount = phone === '80000000000' && code === '123456';
 
-    if (otpError || !otpData) {
-      return new Response(JSON.stringify({ error: 'Invalid or expired OTP' }), {
-        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
+    if (!isTestAccount) {
+      // Verify OTP
+      const { data: otpData, error: otpError } = await supabaseAdmin
+        .from('otp_codes')
+        .select('*')
+        .eq('phone', phone)
+        .eq('code', code)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (otpError || !otpData) {
+        return new Response(JSON.stringify({ error: 'Invalid or expired OTP' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Delete used OTP
+      await supabaseAdmin.from('otp_codes').delete().eq('id', otpData.id)
     }
-
-    // Delete used OTP
-    await supabaseAdmin.from('otp_codes').delete().eq('id', otpData.id)
 
     // Find user
     let { data: user } = await supabaseAdmin.from('users').select('*').eq('phone', phone).single()
