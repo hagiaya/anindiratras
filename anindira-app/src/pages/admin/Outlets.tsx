@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Store, Plus, Trash2, Edit2, RefreshCw } from 'lucide-react'
+import { Store, Plus, Trash2, RefreshCw } from 'lucide-react'
 
 export default function AdminOutlets() {
   const [outlets, setOutlets] = useState<any[]>([])
