@@ -235,3 +235,60 @@ FOR SELECT USING (bucket_id = 'payment_receipts');
 
 CREATE POLICY "Allow authenticated uploads to payment receipts" ON storage.objects
 FOR INSERT TO authenticated WITH CHECK (bucket_id = 'payment_receipts');
+
+-- QRIS SETTINGS TABLE
+CREATE TABLE public.qris_settings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  image_url TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.qris_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view active qris" 
+ON public.qris_settings FOR SELECT 
+USING (is_active = true OR auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Admins can manage qris" 
+ON public.qris_settings FOR ALL 
+USING (auth.jwt() ->> 'role' = 'ADMIN');
+
+-- OUTLETS TABLE
+CREATE TABLE public.outlets (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(100) NOT NULL,
+  address TEXT,
+  phone VARCHAR(20),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.outlets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view active outlets" 
+ON public.outlets FOR SELECT 
+USING (is_active = true OR auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Admins can manage outlets" 
+ON public.outlets FOR ALL 
+USING (auth.jwt() ->> 'role' = 'ADMIN');
+
+-- QRIS STORAGE BUCKET
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('qris', 'qris', true)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Give public access to qris bucket" ON storage.objects
+FOR SELECT USING (bucket_id = 'qris');
+
+CREATE POLICY "Allow authenticated admin uploads to qris bucket" ON storage.objects
+FOR INSERT TO authenticated WITH CHECK (bucket_id = 'qris' AND auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Allow authenticated admin update to qris bucket" ON storage.objects
+FOR UPDATE TO authenticated USING (bucket_id = 'qris' AND auth.jwt() ->> 'role' = 'ADMIN');
+
+CREATE POLICY "Allow authenticated admin delete to qris bucket" ON storage.objects
+FOR DELETE TO authenticated USING (bucket_id = 'qris' AND auth.jwt() ->> 'role' = 'ADMIN');

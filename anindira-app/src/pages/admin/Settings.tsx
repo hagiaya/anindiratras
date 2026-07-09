@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Map, Tag, RefreshCw, Landmark } from 'lucide-react'
+import { Plus, Trash2, Map, Tag, RefreshCw, Landmark, QrCode, Upload } from 'lucide-react'
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<'ROUTES' | 'PRICES' | 'BANKS'>('ROUTES')
+  const [activeTab, setActiveTab] = useState<'ROUTES' | 'PRICES' | 'BANKS' | 'QRIS'>('ROUTES')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState('')
 
@@ -25,6 +25,11 @@ export default function Settings() {
   const [newBankName, setNewBankName] = useState('')
   const [newAccountNumber, setNewAccountNumber] = useState('')
   const [newAccountHolder, setNewAccountHolder] = useState('')
+
+  // QRIS State
+  const [qrisImage, setQrisImage] = useState<any>(null)
+  const [uploadingQris, setUploadingQris] = useState(false)
+  const [qrisFile, setQrisFile] = useState<File | null>(null)
 
   useEffect(() => {
     fetchData()
@@ -60,6 +65,21 @@ export default function Settings() {
         
       if (banksError) throw new Error('Bank Error: ' + banksError.message)
       setBanks(banksData || [])
+
+      // Fetch QRIS
+      const { data: qrisData, error: qrisError } = await supabase
+        .from('qris_settings')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        
+      if (!qrisError && qrisData) {
+        setQrisImage(qrisData)
+      } else {
+        setQrisImage(null)
+      }
 
     } catch (err: any) {
       console.error(err)
@@ -160,6 +180,58 @@ export default function Settings() {
     else setError(error.message)
   }
 
+  // --- QRIS LOGIC ---
+  const handleUploadQris = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!qrisFile) return
+    
+    setUploadingQris(true)
+    setError('')
+    
+    try {
+      const fileExt = qrisFile.name.split('.').pop()
+      const fileName = `qris_${Date.now()}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('qris')
+        .upload(fileName, qrisFile)
+
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage
+        .from('qris')
+        .getPublicUrl(fileName)
+
+      // Deactivate old QRIS
+      await supabase.from('qris_settings').update({ is_active: false }).eq('is_active', true)
+
+      // Insert new QRIS
+      const { error: dbError } = await supabase.from('qris_settings').insert({
+        image_url: urlData.publicUrl,
+        is_active: true
+      })
+
+      if (dbError) throw dbError
+
+      setQrisFile(null)
+      fetchData()
+      alert('QRIS berhasil diunggah!')
+    } catch (err: any) {
+      setError('Gagal unggah QRIS: ' + err.message)
+    } finally {
+      setUploadingQris(false)
+    }
+  }
+
+  const handleDeleteQris = async (id: string) => {
+    if (!confirm('Hapus QRIS ini?')) return
+    setIsRefreshing(true)
+    const { error } = await supabase.from('qris_settings').update({ is_active: false }).eq('id', id)
+    setIsRefreshing(false)
+    if (!error) fetchData()
+    else setError(error.message)
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -199,6 +271,13 @@ export default function Settings() {
         >
           <Landmark size={18} />
           <span>Rekening Pembayaran</span>
+        </button>
+        <button
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'QRIS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('QRIS')}
+        >
+          <QrCode size={18} />
+          <span>QRIS</span>
         </button>
       </div>
 
@@ -414,6 +493,58 @@ export default function Settings() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'QRIS' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><QrCode size={20} className="mr-2 text-primary"/> Unggah Barcode QRIS</h2>
+            <form onSubmit={handleUploadQris} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Pilih Gambar Barcode (JPG/PNG)</label>
+                <div className="mt-2 flex items-center justify-center w-full">
+                  <label htmlFor="dropzone-file" className="flex flex-col items-center justify-center w-full h-40 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Upload className="w-8 h-8 mb-3 text-gray-400" />
+                      <p className="mb-2 text-sm text-gray-500 font-medium">
+                        {qrisFile ? <span className="text-primary">{qrisFile.name}</span> : <span>Klik untuk mengunggah gambar</span>}
+                      </p>
+                      <p className="text-xs text-gray-500">SVG, PNG, JPG atau GIF</p>
+                    </div>
+                    <input id="dropzone-file" type="file" className="hidden" accept="image/*" onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        setQrisFile(e.target.files[0])
+                      }
+                    }} />
+                  </label>
+                </div>
+              </div>
+              
+              <button disabled={uploadingQris || !qrisFile} type="submit" className="w-full bg-gray-900 text-white font-bold rounded-xl py-3 hover:bg-black transition active:scale-95 disabled:opacity-50 flex items-center justify-center space-x-2">
+                {uploadingQris && <RefreshCw size={18} className="animate-spin" />}
+                <span>{uploadingQris ? 'Mengunggah...' : 'Simpan QRIS'}</span>
+              </button>
+            </form>
+          </div>
+          
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center">QRIS Aktif Saat Ini</h2>
+            {qrisImage ? (
+              <div className="flex flex-col items-center justify-center bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <img src={qrisImage.image_url} alt="QRIS" className="w-full max-w-[250px] object-contain rounded-lg shadow-sm bg-white" />
+                <div className="mt-4 flex w-full justify-between items-center text-sm">
+                  <span className="text-gray-500 font-medium">Status: <span className="text-green-600 font-bold">Aktif</span></span>
+                  <button onClick={() => handleDeleteQris(qrisImage.id)} className="text-red-500 font-bold hover:text-red-700 hover:underline">Hapus / Nonaktifkan</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-xl border border-gray-200 text-gray-400">
+                <QrCode size={48} className="mb-2 opacity-50" />
+                <p className="font-medium">Belum ada QRIS yang aktif</p>
+              </div>
+            )}
           </div>
         </div>
       )}

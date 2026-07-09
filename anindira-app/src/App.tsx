@@ -15,6 +15,7 @@ import AdminDashboard from './pages/admin/Dashboard'
 import AdminUsers from './pages/admin/Users'
 import AdminTransactions from './pages/admin/Transactions'
 import AdminSettings from './pages/admin/Settings'
+import AdminOutlets from './pages/admin/Outlets'
 import AdminNotifications from './pages/admin/Notifications'
 import AdminPromos from './pages/admin/Promos'
 import AdminLogin from './pages/admin/Login'
@@ -23,7 +24,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import { initializePushNotifications } from './lib/pushNotifications'
-import { LayoutDashboard, Users as UsersIcon, Settings, Bell, LogOut, Menu, X, CreditCard, Tag } from 'lucide-react'
+import { LayoutDashboard, Users as UsersIcon, Settings, Bell, LogOut, Menu, X, CreditCard, Tag, Store } from 'lucide-react'
 import IncomingCallAlert from './components/IncomingCallAlert'
 
 // Declare Capacitor on Window
@@ -91,6 +92,10 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
           <Link to="/admin/promos" className={`flex items-center space-x-3 rounded-lg px-4 py-3 ${location.pathname === '/admin/promos' ? 'bg-gray-800 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}>
             <Tag size={20} />
             <span>Manajemen Promo</span>
+          </Link>
+          <Link to="/admin/outlets" className={`flex items-center space-x-3 rounded-lg px-4 py-3 ${location.pathname === '/admin/outlets' ? 'bg-gray-800 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}>
+            <Store size={20} />
+            <span>Outlet & Cabang</span>
           </Link>
           <Link to="/admin/settings" className={`flex items-center space-x-3 rounded-lg px-4 py-3 ${location.pathname === '/admin/settings' ? 'bg-gray-800 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}>
             <Settings size={20} />
@@ -218,6 +223,7 @@ function App() {
         <Route path="/admin/users" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminUsers /></AdminLayout></PrivateRoute>} />
         <Route path="/admin/transactions" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminTransactions /></AdminLayout></PrivateRoute>} />
         <Route path="/admin/promos" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminPromos /></AdminLayout></PrivateRoute>} />
+        <Route path="/admin/outlets" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminOutlets /></AdminLayout></PrivateRoute>} />
         <Route path="/admin/settings" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminSettings /></AdminLayout></PrivateRoute>} />
         <Route path="/admin/notifications" element={<PrivateRoute requiredRole="ADMIN"><AdminLayout><AdminNotifications /></AdminLayout></PrivateRoute>} />
       </Routes>
