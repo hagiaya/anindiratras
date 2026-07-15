@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { 
   CarFront, 
@@ -66,8 +66,7 @@ export default function Home() {
 
   // Auto-redirect DRIVER to their dashboard
   if (role === 'DRIVER') {
-    navigate('/driver', { replace: true })
-    return null
+    return <Navigate to="/driver" replace />
   }
 
   const services = [

@@ -23,6 +23,7 @@ export default function Login() {
   const [step, setStep] = useState<'LANDING' | 'PHONE' | 'REGISTER_FORM' | 'METHOD' | 'OTP' | 'SUCCESS'>('LANDING')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [countdown, setCountdown] = useState(59)
   const navigate = useNavigate()
   
   const otpInputRef = useRef<HTMLInputElement>(null)
@@ -41,6 +42,14 @@ export default function Login() {
       }
     })
   }, [navigate])
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    if (step === 'OTP' && countdown > 0) {
+      timer = setTimeout(() => setCountdown(c => c - 1), 1000)
+    }
+    return () => clearTimeout(timer)
+  }, [step, countdown])
 
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -64,6 +73,7 @@ export default function Login() {
         body: { phone }
       })
       if (fnError || data?.error) throw new Error(fnError?.message || data?.error || 'Gagal mengirim OTP')
+      setCountdown(59)
       setStep('OTP')
     } catch (err: any) {
       setError(err.message)
@@ -448,15 +458,19 @@ export default function Login() {
           </div>
 
           <div className="mt-8 flex items-center justify-between">
-            <button className="text-sm font-semibold text-primary underline decoration-primary/30 underline-offset-4">
-              Or, send via SMS
+            <button 
+              onClick={() => { setCountdown(59); handleSendOTP(); }}
+              disabled={countdown > 0 || loading}
+              className={`text-sm font-semibold underline decoration-primary/30 underline-offset-4 ${countdown > 0 ? 'text-gray-400 cursor-not-allowed' : 'text-primary'}`}
+            >
+              Kirim ulang OTP
             </button>
             <div className="flex items-center space-x-1 text-sm font-semibold text-gray-900">
               <svg className="h-4 w-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10"></circle>
                 <polyline points="12 6 12 12 16 14"></polyline>
               </svg>
-              <span>00:59</span>
+              <span>{`00:${countdown.toString().padStart(2, '0')}`}</span>
             </div>
           </div>
 

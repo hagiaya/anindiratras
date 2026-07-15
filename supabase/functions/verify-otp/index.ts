@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import * as jose from "https://deno.land/x/jose@v4.14.4/index.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,6 +63,10 @@ serve(async (req) => {
         email: fakeEmail,
         email_confirm: true,
         password: Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8),
+        user_metadata: {
+          role,
+          full_name: registrationData?.full_name || null
+        }
       })
       
       if (createError) throw createError
@@ -98,33 +101,34 @@ serve(async (req) => {
       }
     }
 
-    // Sign JWT
-    const jwtSecret = Deno.env.get('CUSTOM_JWT_SECRET') || ''
-    const secret = new TextEncoder().encode(jwtSecret)
-    const alg = 'HS256'
+    // Generate a temporary password to log in natively via GoTrue
+    const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8)
     
-    const token = await new jose.SignJWT({
-      aud: 'authenticated',
-      role: 'authenticated',
-      sub: user.id,
-      email: user.email || `${phone}@anindiratrans.local`,
-      phone: phone,
-      app_metadata: { provider: 'phone' },
-      user_metadata: { role: user.role, full_name: user.full_name }
+    // Update the user's password in GoTrue
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+      password: tempPassword
     })
-      .setProtectedHeader({ alg })
-      .setIssuedAt()
-      .setExpirationTime('30d')
-      .sign(secret)
+    
+    if (updateError) throw updateError
+    
+    // Sign in with the temporary password to get a valid native GoTrue session
+    const loginEmail = user.email || `${phone}@anindiratrans.local`
+    
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    )
+    
+    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+      email: loginEmail,
+      password: tempPassword
+    })
+    
+    if (authError || !authData.session) throw new Error(authError?.message || 'Failed to generate session')
 
     return new Response(JSON.stringify({ 
       success: true, 
-      session: {
-        access_token: token,
-        token_type: 'bearer',
-        expires_in: 2592000,
-        user: { id: user.id, phone: user.phone, role: user.role }
-      } 
+      session: authData.session 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
