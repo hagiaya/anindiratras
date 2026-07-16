@@ -51,13 +51,17 @@ serve(async (req) => {
 
     const messageText = `💬 *Pesan Baru di Anindira Trans*\n\nDari: *${senderName}*\nPesan: _"${record.message}"_\n\nSegera cek dan balas melalui aplikasi Anindira Trans.`;
 
+    let targetPhone = receiver.phone
+    if (targetPhone.startsWith('8')) targetPhone = '62' + targetPhone
+    else if (targetPhone.startsWith('0')) targetPhone = '62' + targetPhone.substring(1)
+
     const response = await fetch('https://api.fonnte.com/send', {
       method: 'POST',
       headers: {
         'Authorization': fonnteToken
       },
       body: new URLSearchParams({
-        target: receiver.phone,
+        target: targetPhone,
         message: messageText
       })
     });

@@ -45,13 +45,20 @@ serve(async (req) => {
     // Send via Fonnte
     const fonnteToken = Deno.env.get('FONNTE_TOKEN')
     if (fonnteToken) {
+      let targetPhone = phone
+      if (targetPhone.startsWith('8')) {
+        targetPhone = '62' + targetPhone
+      } else if (targetPhone.startsWith('0')) {
+        targetPhone = '62' + targetPhone.substring(1)
+      }
+
       const response = await fetch('https://api.fonnte.com/send', {
         method: 'POST',
         headers: {
           'Authorization': fonnteToken
         },
         body: new URLSearchParams({
-          target: phone,
+          target: targetPhone,
           message: `*AnindiraTrans Security*\n\nKode verifikasi WhatsApp Anda adalah: *${otp}*\n\nBerlaku selama 5 menit. Jangan berikan kode ini kepada siapapun.`
         })
       })

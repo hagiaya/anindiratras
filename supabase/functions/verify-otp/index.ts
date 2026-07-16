@@ -104,9 +104,10 @@ serve(async (req) => {
     // Generate a temporary password to log in natively via GoTrue
     const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8)
     
-    // Update the user's password in GoTrue
+    // Update the user's password in GoTrue and sync role from db to JWT user_metadata
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
-      password: tempPassword
+      password: tempPassword,
+      user_metadata: { role: user.role, full_name: user.full_name }
     })
     
     if (updateError) throw updateError

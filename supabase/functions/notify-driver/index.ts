@@ -35,8 +35,18 @@ serve(async (req) => {
       return new Response("No available drivers to notify.", { headers: corsHeaders, status: 200 })
     }
 
-    // Gabungkan nomor telepon dengan koma untuk target Fonnte
-    const phones = drivers.map(d => d.phone).filter(p => p).join(',');
+    // Format and gabungkan nomor telepon dengan koma untuk target Fonnte
+    const formattedPhones = drivers
+      .map(d => d.phone)
+      .filter(p => p)
+      .map(p => {
+        let phone = p
+        if (phone.startsWith('8')) phone = '62' + phone
+        else if (phone.startsWith('0')) phone = '62' + phone.substring(1)
+        return phone
+      })
+
+    const phones = formattedPhones.join(',');
 
     if (!phones) {
       return new Response("No valid phone numbers found.", { headers: corsHeaders, status: 200 })
