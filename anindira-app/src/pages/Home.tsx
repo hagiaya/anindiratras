@@ -234,7 +234,7 @@ export default function Home() {
             
             {/* Help Center Card */}
             <div 
-              onClick={() => navigate('/chat-list')}
+              onClick={() => navigate('/help')}
               className="flex cursor-pointer items-center justify-between rounded-2xl bg-white p-4 shadow-sm border border-gray-100 transition active:scale-[0.98]"
             >
               <div className="flex items-center space-x-4">
@@ -242,11 +242,11 @@ export default function Home() {
                   <HeadphonesIcon size={24} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-gray-800">Bantuan CS 24/7</h3>
-                  <p className="text-xs text-gray-500">Punya kendala? Hubungi kami</p>
+                  <h3 className="font-bold text-gray-800">Pusat Bantuan & Tutorial</h3>
+                  <p className="text-xs text-gray-500">Panduan Aplikasi & Hubungi CS</p>
                 </div>
               </div>
-              <button className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-sm">Chat</button>
+              <button className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-bold text-white shadow-sm">Buka</button>
             </div>
 
             {/* Safety Guarantee Card */}

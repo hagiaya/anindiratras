@@ -27,7 +27,7 @@ export default function Package() {
   
   // Detail Barang
   const [itemName, setItemName] = useState('')
-  const [weight, setWeight] = useState<'KECIL' | 'SEDANG' | 'BESAR'>('KECIL')
+  const [weightKg, setWeightKg] = useState<number>(1)
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
   
   const [loading, setLoading] = useState(false)
@@ -54,11 +54,26 @@ export default function Package() {
       }
     }
     fetchPrices()
+    
+    // Set sender info from user session if available
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setSenderName(user.user_metadata?.full_name || '')
+        setSenderPhone(user.phone || '')
+      }
+    }
+    fetchUser()
   }, [])
 
-  // Cari harga berdasarkan ukuran (description), default jika belum diatur admin
-  const selectedPriceData = packagePrices.find(p => p.description === weight)
-  const basePrice = selectedPriceData ? Number(selectedPriceData.base_price) : (weight === 'KECIL' ? 15000 : weight === 'SEDANG' ? 25000 : 50000)
+  // Cari harga dari admin
+  const basePriceData = packagePrices.find(p => p.description === 'BASE_PRICE')
+  const perKgPriceData = packagePrices.find(p => p.description === 'PRICE_PER_KG')
+  
+  const basePrice = basePriceData ? Number(basePriceData.base_price) : 15000
+  const pricePerKg = perKgPriceData ? Number(perKgPriceData.base_price) : 5000
+  
+  const totalPackagePrice = basePrice + (weightKg * pricePerKg)
 
   const getFinalPrice = (totalBase: number) => {
     if (!promoData) return totalBase
@@ -93,7 +108,7 @@ export default function Package() {
 
       if (error || !data) throw new Error('Kode promo tidak valid atau sudah tidak aktif')
       
-      const currentBase = basePrice + 1000 // with insurance
+      const currentBase = totalPackagePrice + 1000 // with insurance
       if (currentBase < data.min_order_amount) {
         throw new Error(`Minimal transaksi Rp ${data.min_order_amount.toLocaleString('id-ID')} untuk promo ini`)
       }
@@ -118,7 +133,7 @@ export default function Package() {
         if (!user) throw new Error('Anda belum login')
       }
 
-      const currentBase = basePrice + 1000 // with insurance
+      const currentBase = totalPackagePrice + 1000 // with insurance
       const totalPrice = getFinalPrice(currentBase)
 
       // Call Checkout Edge Function
@@ -133,7 +148,7 @@ export default function Package() {
             dropoff_address: dropoff,
             dropoff_lat: dropoffLat,
             dropoff_lng: dropoffLng,
-            package_details: JSON.stringify({ senderName, senderPhone, receiverName, receiverPhone, itemName, weight }),
+            package_details: JSON.stringify({ senderName, senderPhone, receiverName, receiverPhone, itemName, weightKg }),
             total_price: totalPrice,
             promo_id: promoData?.id || null
           }
@@ -154,7 +169,6 @@ export default function Package() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
-      {/* HEADER */}
       <div className="sticky top-0 z-50 flex items-center bg-white px-4 py-4 shadow-sm">
         <button onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)} className="mr-4 text-gray-600 transition active:scale-90">
           <ArrowLeft size={24} />
@@ -165,10 +179,9 @@ export default function Package() {
       <div className="p-4">
         {error && <div className="mb-4 rounded-lg bg-red-100 p-3 text-sm font-semibold text-red-600">{error}</div>}
 
-        {/* Step Indicator */}
         <div className="mb-8 flex items-center justify-center space-x-2">
-          {[1, 2, 3].map(i => (
-            <div key={i} className={`h-2 w-16 rounded-full transition-colors duration-300 ${step >= i ? 'bg-orange-500' : 'bg-gray-200'}`} />
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className={`h-2 w-12 rounded-full transition-colors duration-300 ${step >= i ? 'bg-orange-500' : 'bg-gray-200'}`} />
           ))}
         </div>
 
@@ -176,7 +189,7 @@ export default function Package() {
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
-              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Rute Pengiriman</h2>
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Lokasi Jemput & Antar</h2>
               <div className="relative space-y-5">
                 <div className="absolute left-[11px] top-6 h-[52px] w-0.5 bg-gray-200"></div>
                 <div className="flex items-start space-x-3">
@@ -184,7 +197,7 @@ export default function Package() {
                     <MapPin size={14} />
                   </div>
                   <div className="flex-1">
-                    <label className="text-xs font-semibold text-gray-500">Lokasi Pengambilan (Pengirim)</label>
+                    <label className="text-xs font-semibold text-gray-500">Lokasi Jemput Barang (Pengirim)</label>
                     <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-orange-500 transition-colors">
                       <input
                         type="text"
@@ -194,7 +207,7 @@ export default function Package() {
                         className="w-full font-medium text-gray-800 focus:outline-none"
                       />
                       <button onClick={() => { setMapTarget('PICKUP'); setIsMapOpen(true); }} className="text-xs font-bold text-orange-500 whitespace-nowrap bg-orange-50 px-2 py-1 rounded-md">
-                        Pilih di Peta
+                        Peta
                       </button>
                     </div>
                   </div>
@@ -204,7 +217,7 @@ export default function Package() {
                     <MapPin size={14} />
                   </div>
                   <div className="flex-1">
-                    <label className="text-xs font-semibold text-gray-500">Lokasi Tujuan (Penerima)</label>
+                    <label className="text-xs font-semibold text-gray-500">Tujuan / Alamat Penerima</label>
                     <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-orange-500 transition-colors">
                       <input
                         type="text"
@@ -214,7 +227,7 @@ export default function Package() {
                         className="w-full font-medium text-gray-800 focus:outline-none"
                       />
                       <button onClick={() => { setMapTarget('DROPOFF'); setIsMapOpen(true); }} className="text-xs font-bold text-orange-500 whitespace-nowrap bg-orange-50 px-2 py-1 rounded-md">
-                        Pilih di Peta
+                        Peta
                       </button>
                     </div>
                   </div>
@@ -227,15 +240,55 @@ export default function Package() {
               onClick={() => setStep(2)}
               className="mt-6 w-full rounded-full bg-orange-500 py-4 font-bold text-white shadow-lg shadow-orange-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
-              Lanjut Isi Detail Barang
+              Lanjut Isi Data Penerima
             </button>
           </div>
         )}
 
-        {/* STEP 2: DETAIL BARANG & KONTAK */}
+        {/* STEP 2: DATA PENERIMA & PENGIRIM */}
         {step === 2 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
-            {/* Ukuran Barang */}
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Data Penerima</h2>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
+                  <User size={18} className="text-gray-400" />
+                  <input type="text" value={receiverName} onChange={e => setReceiverName(e.target.value)} placeholder="Nama Penerima" className="w-full font-medium text-gray-800 focus:outline-none" />
+                </div>
+                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
+                  <Phone size={18} className="text-gray-400" />
+                  <input type="tel" value={receiverPhone} onChange={e => setReceiverPhone(e.target.value)} placeholder="No. Telp Penerima" className="w-full font-medium text-gray-800 focus:outline-none" />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Data Pengirim</h2>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
+                  <User size={18} className="text-gray-400" />
+                  <input type="text" value={senderName} onChange={e => setSenderName(e.target.value)} placeholder="Nama Pengirim" className="w-full font-medium text-gray-800 focus:outline-none" />
+                </div>
+                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
+                  <Phone size={18} className="text-gray-400" />
+                  <input type="tel" value={senderPhone} onChange={e => setSenderPhone(e.target.value)} placeholder="No. Telp Pengirim" className="w-full font-medium text-gray-800 focus:outline-none" />
+                </div>
+              </div>
+            </div>
+
+            <button
+              disabled={!receiverName || !receiverPhone || !senderName || !senderPhone}
+              onClick={() => setStep(3)}
+              className="mt-6 w-full rounded-full bg-orange-500 py-4 font-bold text-white shadow-lg shadow-orange-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+            >
+              Lanjut Pilih Berat Barang
+            </button>
+          </div>
+        )}
+
+        {/* STEP 3: BERAT BARANG & HARGA */}
+        {step === 3 && (
+          <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Detail Paket</h2>
               <div className="space-y-4">
@@ -254,70 +307,45 @@ export default function Package() {
                 </div>
                 
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 block mb-2">Pilih Ukuran/Berat</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setWeight('KECIL')}
-                      className={`flex flex-col items-center justify-center rounded-xl p-3 border-2 transition active:scale-95 ${weight === 'KECIL' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-white'}`}
-                    >
-                      <PackageIcon size={24} className={weight === 'KECIL' ? 'text-orange-500' : 'text-gray-400'} />
-                      <span className={`mt-2 text-xs font-bold ${weight === 'KECIL' ? 'text-orange-600' : 'text-gray-500'}`}>Kecil</span>
-                      <span className="text-[10px] text-gray-400">{'< 5kg'}</span>
-                    </button>
-                    <button
-                      onClick={() => setWeight('SEDANG')}
-                      className={`flex flex-col items-center justify-center rounded-xl p-3 border-2 transition active:scale-95 ${weight === 'SEDANG' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-white'}`}
-                    >
-                      <PackageIcon size={28} className={weight === 'SEDANG' ? 'text-orange-500' : 'text-gray-400'} />
-                      <span className={`mt-2 text-xs font-bold ${weight === 'SEDANG' ? 'text-orange-600' : 'text-gray-500'}`}>Sedang</span>
-                      <span className="text-[10px] text-gray-400">{'5-20kg'}</span>
-                    </button>
-                    <button
-                      onClick={() => setWeight('BESAR')}
-                      className={`flex flex-col items-center justify-center rounded-xl p-3 border-2 transition active:scale-95 ${weight === 'BESAR' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-white'}`}
-                    >
-                      <PackageIcon size={32} className={weight === 'BESAR' ? 'text-orange-500' : 'text-gray-400'} />
-                      <span className={`mt-2 text-xs font-bold ${weight === 'BESAR' ? 'text-orange-600' : 'text-gray-500'}`}>Besar</span>
-                      <span className="text-[10px] text-gray-400">{'> 20kg'}</span>
-                    </button>
+                  <label className="text-xs font-semibold text-gray-500 block mb-2">Berat Barang (kg)</label>
+                  <div className="flex items-center space-x-3 border border-gray-200 rounded-xl p-3 focus-within:border-orange-500 transition-colors">
+                    <input
+                      type="number"
+                      min="1"
+                      value={weightKg}
+                      onChange={e => setWeightKg(Number(e.target.value))}
+                      className="w-full font-bold text-gray-800 focus:outline-none text-center"
+                    />
+                    <span className="text-gray-500 font-bold">Kg</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">Harga: Dasar Rp {basePrice.toLocaleString('id-ID')} + (Rp {pricePerKg.toLocaleString('id-ID')} / Kg)</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-orange-100 bg-orange-50 p-4">
+              <div className="flex flex-col space-y-2">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Ongkos Kirim ({weightKg} kg)</span>
+                  <span>Rp {totalPackagePrice.toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Biaya Asuransi Dasar</span>
+                  <span>Rp 1.000</span>
+                </div>
+                <div className="border-t border-dashed border-gray-200 my-2"></div>
+                <div className="flex justify-between items-center text-lg font-bold text-gray-900">
+                  <span>Estimasi Harga</span>
+                  <div className="text-right">
+                    <span className="text-orange-500">Rp {(totalPackagePrice + 1000).toLocaleString('id-ID')}</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Pengirim */}
-            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
-              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Data Pengirim</h2>
-              <div className="space-y-4">
-                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
-                  <User size={18} className="text-gray-400" />
-                  <input type="text" value={senderName} onChange={e => setSenderName(e.target.value)} placeholder="Nama Pengirim" className="w-full font-medium text-gray-800 focus:outline-none" />
-                </div>
-                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
-                  <Phone size={18} className="text-gray-400" />
-                  <input type="tel" value={senderPhone} onChange={e => setSenderPhone(e.target.value)} placeholder="No. HP Pengirim" className="w-full font-medium text-gray-800 focus:outline-none" />
-                </div>
-              </div>
-            </div>
-
-            {/* Penerima */}
-            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
-              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Data Penerima</h2>
-              <div className="space-y-4">
-                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
-                  <User size={18} className="text-gray-400" />
-                  <input type="text" value={receiverName} onChange={e => setReceiverName(e.target.value)} placeholder="Nama Penerima" className="w-full font-medium text-gray-800 focus:outline-none" />
-                </div>
-                <div className="flex items-center space-x-3 border-b-2 border-gray-100 pb-2 focus-within:border-orange-500 transition-colors">
-                  <Phone size={18} className="text-gray-400" />
-                  <input type="tel" value={receiverPhone} onChange={e => setReceiverPhone(e.target.value)} placeholder="No. HP Penerima" className="w-full font-medium text-gray-800 focus:outline-none" />
-                </div>
-              </div>
-            </div>
-
             <button
-              disabled={!itemName || !senderName || !senderPhone || !receiverName || !receiverPhone}
-              onClick={() => setStep(3)}
+              disabled={!itemName}
+              onClick={() => setStep(4)}
               className="mt-6 w-full rounded-full bg-orange-500 py-4 font-bold text-white shadow-lg shadow-orange-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               Lanjut ke Pembayaran
@@ -325,8 +353,8 @@ export default function Package() {
           </div>
         )}
 
-        {/* STEP 3: CHECKOUT */}
-        {step === 3 && (
+        {/* STEP 4: CHECKOUT */}
+        {step === 4 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Ringkasan Pesanan</h2>
@@ -336,7 +364,7 @@ export default function Package() {
                   <PackageIcon size={20} className="text-orange-500 shrink-0" />
                   <div>
                     <h3 className="font-bold text-gray-800">{itemName}</h3>
-                    <p className="text-xs text-gray-500">Ukuran: {weight}</p>
+                    <p className="text-xs text-gray-500">Berat: {weightKg} kg</p>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 my-2"></div>
@@ -355,26 +383,17 @@ export default function Package() {
               </div>
 
               <div className="flex flex-col space-y-2">
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>Ongkos Kirim</span>
-                  <span>Rp {basePrice.toLocaleString('id-ID')}</span>
-                </div>
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>Biaya Asuransi Dasar</span>
-                  <span>Rp 1.000</span>
-                </div>
-                <div className="border-t border-dashed border-gray-200 my-2"></div>
                 <div className="flex justify-between items-center text-lg font-bold text-gray-900">
                   <span>Total Tagihan</span>
                   <div className="text-right">
-                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {(basePrice + 1000).toLocaleString('id-ID')}</span>}
-                    <span className="text-orange-500">Rp {getFinalPrice(basePrice + 1000).toLocaleString('id-ID')}</span>
+                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {(totalPackagePrice + 1000).toLocaleString('id-ID')}</span>}
+                    <span className="text-orange-500">Rp {getFinalPrice(totalPackagePrice + 1000).toLocaleString('id-ID')}</span>
                   </div>
                 </div>
                 {promoData && (
                   <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-1">
                     <span>Diskon Promo ({promoData.code})</span>
-                    <span>- Rp {((basePrice + 1000) - getFinalPrice(basePrice + 1000)).toLocaleString('id-ID')}</span>
+                    <span>- Rp {((totalPackagePrice + 1000) - getFinalPrice(totalPackagePrice + 1000)).toLocaleString('id-ID')}</span>
                   </div>
                 )}
               </div>
@@ -448,7 +467,7 @@ export default function Package() {
               className="mt-6 flex w-full items-center justify-center space-x-2 rounded-full bg-orange-500 py-4 font-bold text-white shadow-lg shadow-orange-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               <CreditCard size={20} />
-              <span>{loading ? 'Memproses...' : 'Pesan & Bayar'}</span>
+              <span>{loading ? 'Memproses...' : 'Buat Pesanan'}</span>
             </button>
           </div>
         )}

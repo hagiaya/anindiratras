@@ -1,37 +1,26 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CreditCard, Clock, CalendarDays, Wallet, Banknote } from 'lucide-react'
+import { ArrowLeft, MapPin, CreditCard, Clock, Wallet, Banknote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
 
-type DurationType = 'DALAM_KOTA_12' | 'DALAM_KOTA_24' | 'LUAR_KOTA_24'
+type AreaType = 'DALAM_KOTA' | 'LUAR_KOTA'
 type CarUnit = 'AVANZA' | 'INNOVA' | 'HIACE'
 
-const DURATIONS = [
-  { id: 'DALAM_KOTA_12', title: 'Dalam Kota (12 Jam)', hours: 12 },
-  { id: 'DALAM_KOTA_24', title: 'Dalam Kota (24 Jam)', hours: 24 },
-  { id: 'LUAR_KOTA_24', title: 'Luar Kota (24 Jam)', hours: 24 },
-] as const
-
 const CARS = [
-  { id: 'AVANZA', name: 'Avanza / Xenia', seats: 6, img: '🚗' },
-  { id: 'INNOVA', name: 'Innova Reborn', seats: 7, img: '🚙' },
-  { id: 'HIACE', name: 'Toyota Hiace', seats: 14, img: '🚐' },
+  { id: 'AVANZA', name: 'Avanza / Xenia', seats: 6, img: '🚗', basePrice: 350000 },
+  { id: 'INNOVA', name: 'Innova Reborn', seats: 7, img: '🚙', basePrice: 600000 },
+  { id: 'HIACE', name: 'Toyota Hiace', seats: 14, img: '🚐', basePrice: 1200000 },
 ] as const
-
-// Base prices for 12 hours Dalam Kota
-const BASE_PRICES: Record<CarUnit, number> = {
-  AVANZA: 350000,
-  INNOVA: 600000,
-  HIACE: 1200000,
-}
 
 export default function Rental() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
   
-  const [durationType, setDurationType] = useState<DurationType>('DALAM_KOTA_12')
   const [selectedCar, setSelectedCar] = useState<CarUnit | null>(null)
+  
+  const [areaType, setAreaType] = useState<AreaType>('DALAM_KOTA')
+  const [rentalDays, setRentalDays] = useState<number>(1)
   
   const [pickup, setPickup] = useState('')
   const [pickupLat, setPickupLat] = useState<number | null>(null)
@@ -49,14 +38,18 @@ export default function Rental() {
   const [promoError, setPromoError] = useState('')
   const [promoSuccess, setPromoSuccess] = useState('')
 
-  const getPrice = (car: CarUnit, duration: DurationType) => {
-    let price = BASE_PRICES[car]
-    if (duration === 'DALAM_KOTA_24') {
-      price = price * 1.5 // e.g. 350k -> 525k
-    } else if (duration === 'LUAR_KOTA_24') {
-      price = price * 1.8 // e.g. 350k -> 630k
+  const getPricePerDay = () => {
+    if (!selectedCar) return 0
+    const carData = CARS.find(c => c.id === selectedCar)
+    let price = carData ? carData.basePrice : 0
+    if (areaType === 'LUAR_KOTA') {
+      price = price * 1.5 // 50% tambahan untuk luar kota, bisa disesuaikan
     }
     return price
+  }
+
+  const getTotalBasePrice = () => {
+    return getPricePerDay() * rentalDays
   }
 
   const getFinalPrice = (basePrice: number) => {
@@ -92,8 +85,8 @@ export default function Rental() {
 
       if (error || !data) throw new Error('Kode promo tidak valid atau sudah tidak aktif')
       
-      const basePrice = selectedCar ? getPrice(selectedCar, durationType) : 0
-      if (basePrice < data.min_order_amount) {
+      const totalBase = getTotalBasePrice()
+      if (totalBase < data.min_order_amount) {
         throw new Error(`Minimal transaksi Rp ${data.min_order_amount.toLocaleString('id-ID')} untuk promo ini`)
       }
 
@@ -112,12 +105,15 @@ export default function Rental() {
     setLoading(true)
     setError('')
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not logged in')
+      const demoMode = localStorage.getItem('demo_mode')
+      
+      if (!demoMode) {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('Anda belum login')
+      }
 
-      const basePrice = getPrice(selectedCar, durationType)
-      const finalPrice = getFinalPrice(basePrice)
-      const durationHours = DURATIONS.find(d => d.id === durationType)?.hours || 12
+      const totalBase = getTotalBasePrice()
+      const finalPrice = getFinalPrice(totalBase)
 
       // Call Checkout Edge Function
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
@@ -128,8 +124,8 @@ export default function Rental() {
             pickup_address: pickup,
             pickup_lat: pickupLat,
             pickup_lng: pickupLng,
-            rental_duration_hours: durationHours,
-            package_details: JSON.stringify({ carUnit: selectedCar, durationType }),
+            rental_duration_hours: rentalDays * 24, // Keep in hours for backend compat if needed
+            package_details: JSON.stringify({ carUnit: selectedCar, areaType, rentalDays }),
             total_price: finalPrice,
             promo_id: promoData?.id || null
           }
@@ -150,7 +146,6 @@ export default function Rental() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
-      {/* HEADER */}
       <div className="sticky top-0 z-50 flex items-center bg-white px-4 py-4 shadow-sm">
         <button onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)} className="mr-4 text-gray-600 transition active:scale-90">
           <ArrowLeft size={24} />
@@ -161,48 +156,14 @@ export default function Rental() {
       <div className="p-4">
         {error && <div className="mb-4 rounded-lg bg-red-100 p-3 text-sm font-semibold text-red-600">{error}</div>}
 
-        {/* Step Indicator */}
         <div className="mb-8 flex items-center justify-center space-x-2">
           {[1, 2, 3, 4].map(i => (
             <div key={i} className={`h-2 w-12 rounded-full transition-colors duration-300 ${step >= i ? 'bg-purple-500' : 'bg-gray-200'}`} />
           ))}
         </div>
 
-        {/* STEP 1: DURASI & AREA */}
+        {/* STEP 1: PILIH MOBIL */}
         {step === 1 && (
-          <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
-            <div>
-              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Area & Durasi</h2>
-              <div className="space-y-3">
-                {DURATIONS.map(d => (
-                  <div
-                    key={d.id}
-                    onClick={() => setDurationType(d.id)}
-                    className={`cursor-pointer rounded-xl border-2 p-4 flex items-center space-x-4 transition active:scale-[0.98] ${durationType === d.id ? 'border-purple-500 bg-purple-50' : 'border-gray-100 bg-white shadow-sm'}`}
-                  >
-                    <div className={`p-3 rounded-full ${durationType === d.id ? 'bg-purple-500 text-white' : 'bg-purple-100 text-purple-500'}`}>
-                      {d.id.includes('12') ? <Clock size={24} /> : <CalendarDays size={24} />}
-                    </div>
-                    <div>
-                      <h3 className={`font-bold ${durationType === d.id ? 'text-purple-700' : 'text-gray-800'}`}>{d.title}</h3>
-                      <p className="text-sm text-gray-500">{d.hours} Jam Pemakaian</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={() => setStep(2)}
-              className="mt-6 w-full rounded-full bg-purple-500 py-4 font-bold text-white shadow-lg shadow-purple-200 transition active:scale-[0.98]"
-            >
-              Lanjut Pilih Mobil
-            </button>
-          </div>
-        )}
-
-        {/* STEP 2: PILIH MOBIL */}
-        {step === 2 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div>
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Unit Mobil</h2>
@@ -227,10 +188,6 @@ export default function Rental() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
-                      <span className="text-sm text-gray-500 font-medium">Tarif Sewa</span>
-                      <span className="text-lg font-bold text-purple-600">Rp {getPrice(car.id, durationType).toLocaleString('id-ID')}</span>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -238,10 +195,69 @@ export default function Rental() {
 
             <button
               disabled={!selectedCar}
-              onClick={() => setStep(3)}
+              onClick={() => setStep(2)}
               className="mt-6 w-full rounded-full bg-purple-500 py-4 font-bold text-white shadow-lg shadow-purple-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
-              Lanjut Tentukan Lokasi Jemput
+              Lanjut Pilih Area & Durasi
+            </button>
+          </div>
+        )}
+
+        {/* STEP 2: DURASI & AREA */}
+        {step === 2 && (
+          <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Layanan Area</h2>
+              <div className="flex rounded-lg bg-gray-200 p-1 mb-4">
+                <button
+                  className={`flex-1 rounded-md py-2.5 text-sm font-bold transition ${areaType === 'DALAM_KOTA' ? 'bg-white text-purple-600 shadow' : 'text-gray-600'}`}
+                  onClick={() => setAreaType('DALAM_KOTA')}
+                >
+                  Dalam Kota
+                </button>
+                <button
+                  className={`flex-1 rounded-md py-2.5 text-sm font-bold transition ${areaType === 'LUAR_KOTA' ? 'bg-white text-purple-600 shadow' : 'text-gray-600'}`}
+                  onClick={() => setAreaType('LUAR_KOTA')}
+                >
+                  Luar Kota
+                </button>
+              </div>
+
+              <h2 className="mt-6 mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Sewa Harian</h2>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {[1, 2, 3, 4, 5, 6, 7].map(days => (
+                  <button
+                    key={days}
+                    onClick={() => setRentalDays(days)}
+                    className={`rounded-xl py-3 border-2 transition active:scale-95 font-bold ${rentalDays === days ? 'border-purple-500 bg-purple-50 text-purple-600' : 'border-gray-100 bg-white text-gray-600'}`}
+                  >
+                    {days} Hari
+                  </button>
+                ))}
+                <button
+                  onClick={() => setRentalDays(rentalDays > 7 ? rentalDays + 1 : 8)}
+                  className={`rounded-xl py-3 border-2 transition active:scale-95 font-bold ${rentalDays > 7 ? 'border-purple-500 bg-purple-50 text-purple-600' : 'border-gray-100 bg-white text-gray-600'}`}
+                >
+                  8+
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-xl bg-purple-50 p-3 flex items-start space-x-2 border border-purple-100">
+                <Clock size={16} className="text-purple-500 mt-0.5 shrink-0" />
+                <p className="text-xs font-semibold text-purple-800">Catatan: 1 Hari dihitung dari jam 07:00 pagi sampai jam 22:00 malam.</p>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                <span className="text-sm font-bold text-gray-600">Total Biaya ({rentalDays} Hari)</span>
+                <span className="text-lg font-bold text-purple-600">Rp {getTotalBasePrice().toLocaleString('id-ID')}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setStep(3)}
+              className="mt-6 w-full rounded-full bg-purple-500 py-4 font-bold text-white shadow-lg shadow-purple-200 transition active:scale-[0.98]"
+            >
+              Lanjut Pilih Lokasi Jemput
             </button>
           </div>
         )}
@@ -252,7 +268,7 @@ export default function Rental() {
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Lokasi Penjemputan</h2>
               <div className="flex items-start space-x-3">
-                <div className="mt-1 flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                <div className="mt-1 flex h-6 w-6 items-center justify-center rounded-full bg-purple-100 text-purple-600">
                   <MapPin size={14} />
                 </div>
                 <div className="flex-1">
@@ -266,7 +282,7 @@ export default function Rental() {
                       className="w-full font-medium text-gray-800 focus:outline-none"
                     />
                     <button onClick={() => setIsMapOpen(true)} className="text-xs font-bold text-purple-600 whitespace-nowrap bg-purple-50 px-2 py-1 rounded-md">
-                      Pilih di Peta
+                      Peta
                     </button>
                   </div>
                 </div>
@@ -301,7 +317,8 @@ export default function Rental() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">Area & Durasi</p>
-                    <p className="text-sm font-semibold text-gray-800">{DURATIONS.find(d => d.id === durationType)?.title}</p>
+                    <p className="text-sm font-semibold text-gray-800">{areaType === 'DALAM_KOTA' ? 'Dalam Kota' : 'Luar Kota'}</p>
+                    <p className="text-xs text-gray-500">{rentalDays} Hari</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">Fasilitas</p>
@@ -322,14 +339,14 @@ export default function Rental() {
                 {promoData && (
                   <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-2">
                     <span>Diskon Promo ({promoData.code})</span>
-                    <span>- Rp {(getPrice(selectedCar, durationType) - getFinalPrice(getPrice(selectedCar, durationType))).toLocaleString('id-ID')}</span>
+                    <span>- Rp {(getTotalBasePrice() - getFinalPrice(getTotalBasePrice())).toLocaleString('id-ID')}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center text-lg font-bold text-gray-900 mt-2 border-t border-gray-100 pt-2">
                   <span>Total Harga Sewa</span>
                   <div className="text-right">
-                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {getPrice(selectedCar, durationType).toLocaleString('id-ID')}</span>}
-                    <span className="text-purple-600">Rp {getFinalPrice(getPrice(selectedCar, durationType)).toLocaleString('id-ID')}</span>
+                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {getTotalBasePrice().toLocaleString('id-ID')}</span>}
+                    <span className="text-purple-600">Rp {getFinalPrice(getTotalBasePrice()).toLocaleString('id-ID')}</span>
                   </div>
                 </div>
                 <p className="text-[10px] text-gray-400 text-right">*Belum termasuk BBM, tol, dan parkir</p>
@@ -337,7 +354,7 @@ export default function Rental() {
             </div>
 
             {/* PROMO SECTION */}
-            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Makin Hemat dengan Promo</h2>
               <div className="flex space-x-2">
                 <input 
@@ -369,7 +386,7 @@ export default function Rental() {
               {promoSuccess && <p className="text-xs text-green-600 mt-2 font-medium">{promoSuccess}</p>}
             </div>
 
-            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Metode Pembayaran</h2>
               <div className="space-y-3">
                 <label className={`flex cursor-pointer items-center justify-between rounded-xl border-2 p-4 transition ${paymentMethod === 'CASH' ? 'border-purple-500 bg-purple-50' : 'border-gray-100'}`}>

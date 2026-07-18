@@ -5,6 +5,7 @@ import Carpool from './pages/Carpool'
 import Package from './pages/Package'
 import Airport from './pages/Airport'
 import Rental from './pages/Rental'
+import Help from './pages/Help'
 import Chat from './pages/Chat'
 import ChatList from './pages/ChatList'
 import Call from './pages/Call'
@@ -210,6 +211,7 @@ function App() {
         <Route path="/rental" element={<PrivateRoute><Rental /></PrivateRoute>} />
         <Route path="/orders" element={<PrivateRoute><Orders /></PrivateRoute>} />
         <Route path="/topup" element={<PrivateRoute><TopUp /></PrivateRoute>} />
+        <Route path="/help" element={<PrivateRoute><Help /></PrivateRoute>} />
         <Route path="/driver" element={<PrivateRoute requiredRole="DRIVER"><DriverDashboard /></PrivateRoute>} />
 
         {/* Communication Routes */}

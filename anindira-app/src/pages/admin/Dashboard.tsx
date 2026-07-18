@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { X, ExternalLink, DollarSign, Package, UserCheck, RefreshCw } from 'lucide-react'
+import { X, ExternalLink, DollarSign, Package, UserCheck, RefreshCw, Download, BellRing } from 'lucide-react'
 
 export default function Dashboard() {
   const [orders, setOrders] = useState<any[]>([])
   const [drivers, setDrivers] = useState<any[]>([])
   const [selectedOrder, setSelectedOrder] = useState<any>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const prevOrderCountRef = useRef(0)
 
   useEffect(() => {
     fetchData()
@@ -20,7 +22,50 @@ export default function Dashboard() {
 
   const fetchOrders = async () => {
     const { data } = await supabase.from('orders').select('*, users(phone)').order('created_at', { ascending: false })
-    if (data) setOrders(data)
+    if (data) {
+      const currentCount = data.length
+      if (prevOrderCountRef.current > 0 && currentCount > prevOrderCountRef.current && soundEnabled) {
+        playNotificationSound()
+      }
+      prevOrderCountRef.current = currentCount
+      setOrders(data)
+    }
+  }
+
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3')
+      audio.play().catch(e => console.log('Auto-play prevented', e))
+    } catch (e) {
+      console.log('Audio error', e)
+    }
+  }
+
+  const exportToCSV = () => {
+    if (orders.length === 0) return alert('Tidak ada data untuk diekspor')
+    
+    const headers = ['ID Pesanan', 'Layanan', 'Status', 'Total Harga', 'Pembayaran', 'Tgl Dibuat']
+    const csvContent = [
+      headers.join(','),
+      ...orders.map(o => [
+        o.id,
+        o.order_type,
+        o.status,
+        o.total_price,
+        o.payment_status,
+        new Date(o.created_at).toISOString()
+      ].join(','))
+    ].join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `laporan_pesanan_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   const fetchDrivers = async () => {
@@ -56,13 +101,29 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold text-gray-800">Ringkasan Sistem</h1>
           <p className="text-sm text-gray-500 mt-1">Pantau performa layanan AnindiraTrans secara real-time</p>
         </div>
-        <button 
-          onClick={fetchData}
-          className="flex items-center justify-center space-x-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition active:scale-95"
-        >
-          <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
-          <span>Segarkan</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 mt-4 sm:mt-0">
+          <button 
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={`flex items-center justify-center space-x-2 border px-4 py-2 rounded-lg shadow-sm transition active:scale-95 ${soundEnabled ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
+          >
+            <BellRing size={16} />
+            <span>{soundEnabled ? 'Suara Aktif' : 'Suara Mati'}</span>
+          </button>
+          <button 
+            onClick={exportToCSV}
+            className="flex items-center justify-center space-x-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition active:scale-95"
+          >
+            <Download size={16} />
+            <span>Ekspor Data</span>
+          </button>
+          <button 
+            onClick={fetchData}
+            className="flex items-center justify-center space-x-2 bg-gray-900 border border-gray-900 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-black transition active:scale-95"
+          >
+            <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+            <span>Segarkan</span>
+          </button>
+        </div>
       </div>
       
       {/* Statistics Cards */}
@@ -152,7 +213,7 @@ export default function Dashboard() {
                       >
                         <option value="" disabled>Pilih Sopir (Tersedia: {drivers.length})</option>
                         {drivers.map(d => (
-                          <option key={d.id} value={d.id}>{d.phone}</option>
+                          <option key={d.id} value={d.id}>{d.full_name || d.phone}</option>
                         ))}
                       </select>
                     ) : (

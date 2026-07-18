@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CreditCard, Wallet, Banknote } from 'lucide-react'
+import { ArrowLeft, MapPin, CreditCard, Wallet, Banknote, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
 
@@ -11,20 +11,21 @@ export default function Carpool() {
   const [routes, setRoutes] = useState<any[]>([])
   const [selectedRoute, setSelectedRoute] = useState<any>(null)
   
+  const [carType, setCarType] = useState('4_SEATS')
+  const [selectedSeats, setSelectedSeats] = useState<number[]>([])
+
   const [pickup, setPickup] = useState('')
   const [dropoff, setDropoff] = useState('')
   const [pickupLat, setPickupLat] = useState<number | null>(null)
   const [pickupLng, setPickupLng] = useState<number | null>(null)
   const [dropoffLat, setDropoffLat] = useState<number | null>(null)
   const [dropoffLng, setDropoffLng] = useState<number | null>(null)
+  const [departureTime, setDepartureTime] = useState('')
 
   const [isMapOpen, setIsMapOpen] = useState(false)
   const [mapTarget, setMapTarget] = useState<'PICKUP' | 'DROPOFF'>('PICKUP')
   
-  const [carType, setCarType] = useState('4_SEATS')
-  const [selectedSeats, setSelectedSeats] = useState<number[]>([])
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
-
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -34,6 +35,11 @@ export default function Carpool() {
   const [promoLoading, setPromoLoading] = useState(false)
   const [promoError, setPromoError] = useState('')
   const [promoSuccess, setPromoSuccess] = useState('')
+
+  // Extra Settings from DB
+  const [availableDepartureTimes, setAvailableDepartureTimes] = useState<any[]>([])
+  const [availableExtraPrices, setAvailableExtraPrices] = useState<any[]>([])
+  const [selectedExtraPrice, setSelectedExtraPrice] = useState<any>(null)
 
   const getFinalPrice = (totalBase: number) => {
     if (!promoData) return totalBase
@@ -92,21 +98,38 @@ export default function Carpool() {
       
       if (data) {
         const formattedRoutes = data
-          .filter(item => item.routes) // Pastikan rutenya tidak null
+          .filter(item => item.routes)
           .map((item: any) => ({
             id: item.routes.id,
             name: item.routes.name,
             route_type: item.routes.route_type,
             base_price: Number(item.base_price)
           }))
-        setRoutes(formattedRoutes)
+          
+        const uniqueRoutes = new Map()
+        formattedRoutes.forEach(r => {
+          if (!uniqueRoutes.has(r.id) || uniqueRoutes.get(r.id).base_price > r.base_price) {
+            uniqueRoutes.set(r.id, r)
+          }
+        })
+        
+        setRoutes(Array.from(uniqueRoutes.values()))
       } else if (error) {
         console.error('Error fetching routes:', error)
       }
       setLoading(false)
     }
 
+    const fetchSettings = async () => {
+      const { data: deptData } = await supabase.from('departure_times').select('*').order('time_string', { ascending: true })
+      if (deptData) setAvailableDepartureTimes(deptData)
+
+      const { data: extraData } = await supabase.from('extra_prices').select('*').order('amount', { ascending: true })
+      if (extraData) setAvailableExtraPrices(extraData)
+    }
+
     fetchRoutes()
+    fetchSettings()
   }, [])
 
   const filteredRoutes = routes.filter(r => r.route_type === routeType)
@@ -123,12 +146,11 @@ export default function Carpool() {
     setLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not logged in')
+      if (!user && !localStorage.getItem('demo_mode')) throw new Error('User not logged in')
 
-      const currentBase = selectedRoute.base_price * selectedSeats.length
+      const currentBase = (selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice ? selectedExtraPrice.amount : 0)
       const totalPrice = getFinalPrice(currentBase)
 
-      // Call Checkout Edge Function
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
         body: {
           paymentMethod,
@@ -142,6 +164,7 @@ export default function Carpool() {
             dropoff_lat: dropoffLat,
             dropoff_lng: dropoffLng,
             seat_selected: JSON.stringify(selectedSeats),
+            package_details: JSON.stringify({ departureTime, extraPrice: selectedExtraPrice }),
             total_price: totalPrice,
             promo_id: promoData?.id || null
           }
@@ -161,10 +184,6 @@ export default function Carpool() {
   }
 
   const renderSeatMap = () => {
-    // Mobil 4 Seat: 1 Driver, 3 Passenger
-    // Mobil 5 Seat: 1 Driver, 4 Passenger
-    // Mobil 7 Seat: 1 Driver, 6 Passenger
-
     const renderSeat = (seatNum: number | 'SOPIR' | 'EMPTY') => {
       if (seatNum === 'EMPTY') return <div className="flex h-16 w-16" />
       if (seatNum === 'SOPIR') return <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-200 text-xs font-bold text-gray-500 shadow-sm">Sopir</div>
@@ -220,8 +239,8 @@ export default function Carpool() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex items-center bg-white px-4 py-4 shadow-sm">
+    <div className="min-h-screen bg-gray-50 pb-24">
+      <div className="sticky top-0 z-50 flex items-center bg-white px-4 py-4 shadow-sm">
         <button onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)} className="mr-4 text-gray-600">
           <ArrowLeft size={24} />
         </button>
@@ -231,13 +250,13 @@ export default function Carpool() {
       <div className="p-4">
         {error && <div className="mb-4 rounded-lg bg-red-100 p-3 text-sm text-red-600">{error}</div>}
 
-        {/* Step Indicator */}
         <div className="mb-8 flex items-center justify-center space-x-2">
-          {[1, 2, 3].map(i => (
-            <div key={i} className={`h-2 w-16 rounded-full ${step >= i ? 'bg-primary' : 'bg-gray-200'}`} />
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className={`h-2 w-12 rounded-full ${step >= i ? 'bg-primary' : 'bg-gray-200'}`} />
           ))}
         </div>
 
+        {/* STEP 1: RUTE */}
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div>
@@ -279,70 +298,13 @@ export default function Carpool() {
               onClick={() => setStep(2)}
               className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
             >
-              Lanjut Pilih Lokasi
-            </button>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
-            <div className="rounded-xl bg-white p-4 shadow-sm">
-              <div className="relative space-y-4">
-                <div className="absolute left-[11px] top-6 h-12 w-0.5 bg-gray-200"></div>
-                <div className="flex items-start space-x-3">
-                  <div className="mt-1 rounded-full bg-blue-100 p-1 text-blue-600">
-                    <MapPin size={16} />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-xs font-semibold text-gray-500">Lokasi Penjemputan</label>
-                    <div className="flex items-center space-x-2 border-b border-gray-200 pb-2 mt-1">
-                      <input
-                        type="text"
-                        value={pickup}
-                        onChange={e => setPickup(e.target.value)}
-                        placeholder="Cari lokasi jemput..."
-                        className="w-full focus:outline-none focus:border-primary"
-                      />
-                      <button onClick={() => { setMapTarget('PICKUP'); setIsMapOpen(true); }} className="text-xs font-bold text-primary whitespace-nowrap bg-blue-50 px-2 py-1 rounded-md">
-                        Pilih di Peta
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="mt-1 rounded-full bg-orange-100 p-1 text-orange-600">
-                    <MapPin size={16} />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-xs font-semibold text-gray-500">Lokasi Pengantaran</label>
-                    <div className="flex items-center space-x-2 border-b border-gray-200 pb-2 mt-1">
-                      <input
-                        type="text"
-                        value={dropoff}
-                        onChange={e => setDropoff(e.target.value)}
-                        placeholder="Cari lokasi antar..."
-                        className="w-full focus:outline-none focus:border-primary"
-                      />
-                      <button onClick={() => { setMapTarget('DROPOFF'); setIsMapOpen(true); }} className="text-xs font-bold text-primary whitespace-nowrap bg-blue-50 px-2 py-1 rounded-md">
-                        Pilih di Peta
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <button
-              disabled={!pickup || !dropoff}
-              onClick={() => setStep(3)}
-              className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
-            >
               Lanjut Pilih Kursi
             </button>
           </div>
         )}
 
-        {step === 3 && (
+        {/* STEP 2: KURSI & HARGA */}
+        {step === 2 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div>
               <label className="mb-3 block text-sm font-bold text-gray-700">Pilih Layout Mobil</label>
@@ -363,16 +325,166 @@ export default function Carpool() {
 
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-center justify-between font-bold text-gray-800">
-                <span>Total Harga ({selectedSeats.length} Kursi)</span>
+                <span>Harga Sementara ({selectedSeats.length} Kursi)</span>
                 <div className="text-right">
-                  {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {(selectedRoute.base_price * selectedSeats.length).toLocaleString('id-ID')}</span>}
-                  <span className="text-primary">Rp {getFinalPrice(selectedRoute.base_price * selectedSeats.length).toLocaleString('id-ID')}</span>
+                  <span className="text-primary">Rp {(selectedRoute.base_price * selectedSeats.length).toLocaleString('id-ID')}</span>
                 </div>
               </div>
+            </div>
+
+            <button
+              disabled={selectedSeats.length === 0}
+              onClick={() => setStep(3)}
+              className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
+            >
+              Lanjut Pilih Lokasi & Waktu
+            </button>
+          </div>
+        )}
+
+        {/* STEP 3: LOKASI JEMPUT & WAKTU */}
+        {step === 3 && (
+          <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
+            <div className="rounded-xl bg-white p-4 shadow-sm border border-gray-100">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Lokasi & Waktu</h2>
+              <div className="relative space-y-4">
+                <div className="absolute left-[11px] top-6 h-12 w-0.5 bg-gray-200"></div>
+                <div className="flex items-start space-x-3">
+                  <div className="mt-1 rounded-full bg-blue-100 p-1 text-blue-600">
+                    <MapPin size={16} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-gray-500">Lokasi Penjemputan</label>
+                    <div className="flex items-center space-x-2 border-b border-gray-200 pb-2 mt-1">
+                      <input
+                        type="text"
+                        value={pickup}
+                        onChange={e => setPickup(e.target.value)}
+                        placeholder="Contoh: Jl. Merdeka No. 1"
+                        className="w-full focus:outline-none focus:border-primary"
+                      />
+                      <button onClick={() => { setMapTarget('PICKUP'); setIsMapOpen(true); }} className="text-xs font-bold text-primary whitespace-nowrap bg-blue-50 px-2 py-1 rounded-md">
+                        Pilih di Peta
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <div className="mt-1 rounded-full bg-orange-100 p-1 text-orange-600">
+                    <MapPin size={16} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-gray-500">Lokasi Pengantaran</label>
+                    <div className="flex items-center space-x-2 border-b border-gray-200 pb-2 mt-1">
+                      <input
+                        type="text"
+                        value={dropoff}
+                        onChange={e => setDropoff(e.target.value)}
+                        placeholder="Contoh: Bandara / Stasiun"
+                        className="w-full focus:outline-none focus:border-primary"
+                      />
+                      <button onClick={() => { setMapTarget('DROPOFF'); setIsMapOpen(true); }} className="text-xs font-bold text-primary whitespace-nowrap bg-blue-50 px-2 py-1 rounded-md">
+                        Pilih di Peta
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-white p-4 shadow-sm border border-gray-100">
+              <div className="flex items-start space-x-3 mb-4">
+                <div className="mt-1 rounded-full bg-green-100 p-1 text-green-600">
+                  <Clock size={16} />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs font-semibold text-gray-500 block mb-2">Pilih Jam Berangkat</label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableDepartureTimes.length > 0 ? (
+                      availableDepartureTimes.map(dt => (
+                        <button 
+                          key={dt.id}
+                          onClick={() => setDepartureTime(dt.time_string)}
+                          className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition ${departureTime === dt.time_string ? 'border-primary bg-blue-50 text-primary' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                        >
+                          {dt.time_string}
+                        </button>
+                      ))
+                    ) : (
+                      <input
+                        type="time"
+                        value={departureTime}
+                        onChange={e => setDepartureTime(e.target.value)}
+                        className="w-full font-bold text-gray-800 border-b border-gray-200 pb-2 focus:outline-none focus:border-primary bg-transparent"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {availableExtraPrices.length > 0 && (
+                <div className="flex items-start space-x-3 border-t border-gray-100 pt-4">
+                  <div className="mt-1 rounded-full bg-orange-100 p-1 text-orange-600">
+                    <MapPin size={16} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-gray-500 block mb-2">Biaya Jarak Jauh (Opsional)</label>
+                    <select
+                      className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none"
+                      onChange={(e) => {
+                        const val = e.target.value
+                        if (!val) setSelectedExtraPrice(null)
+                        else setSelectedExtraPrice(availableExtraPrices.find(ep => ep.id === val))
+                      }}
+                      value={selectedExtraPrice?.id || ''}
+                    >
+                      <option value="">-- Tidak Ada --</option>
+                      {availableExtraPrices.map(ep => (
+                        <option key={ep.id} value={ep.id}>{ep.description}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              disabled={!pickup || !dropoff || !departureTime}
+              onClick={() => setStep(4)}
+              className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
+            >
+              Lanjut ke Pembayaran
+            </button>
+          </div>
+        )}
+
+        {/* STEP 4: CHECKOUT */}
+        {step === 4 && (
+          <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-center justify-between font-bold text-gray-800 mb-2">
+                <span className="text-sm">Tiket ({selectedSeats.length} Kursi)</span>
+                <span>Rp {(selectedRoute.base_price * selectedSeats.length).toLocaleString('id-ID')}</span>
+              </div>
+              {selectedExtraPrice && (
+                <div className="flex items-center justify-between font-bold text-gray-800 mb-2 border-t border-blue-200 pt-2">
+                  <span className="text-sm">Jarak Jauh</span>
+                  <span>Rp {selectedExtraPrice.amount.toLocaleString('id-ID')}</span>
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between font-bold text-gray-800 border-t border-blue-200 pt-2 mt-2">
+                <span>Total Harga</span>
+                <div className="text-right">
+                  {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0)).toLocaleString('id-ID')}</span>}
+                  <span className="text-primary text-xl">Rp {getFinalPrice((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0)).toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+              
               {promoData && (
                 <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-1">
                   <span>Diskon Promo ({promoData.code})</span>
-                  <span>- Rp {((selectedRoute.base_price * selectedSeats.length) - getFinalPrice(selectedRoute.base_price * selectedSeats.length)).toLocaleString('id-ID')}</span>
+                  <span>- Rp {(((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0)) - getFinalPrice((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0))).toLocaleString('id-ID')}</span>
                 </div>
               )}
             </div>
@@ -445,7 +557,7 @@ export default function Carpool() {
               className="mt-6 flex w-full items-center justify-center space-x-2 rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
             >
               <CreditCard size={20} />
-              <span>{loading ? 'Memproses...' : 'Bayar Sekarang'}</span>
+              <span>{loading ? 'Memproses...' : 'Buat Pesanan'}</span>
             </button>
           </div>
         )}

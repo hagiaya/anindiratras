@@ -1,11 +1,24 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Map, Tag, RefreshCw, Landmark, QrCode, Upload } from 'lucide-react'
+import { Plus, Trash2, Map, Tag, RefreshCw, Landmark, QrCode, Upload, Settings as SettingsIcon, Clock, TrendingUp, AlertTriangle } from 'lucide-react'
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<'ROUTES' | 'PRICES' | 'BANKS' | 'QRIS'>('ROUTES')
+  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'ROUTES' | 'PRICES' | 'BANKS' | 'QRIS'>('GLOBAL')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
+
+  // Global Settings State
+  const [appSettings, setAppSettings] = useState<any>(null)
+  const [profitPercentage, setProfitPercentage] = useState<number>(0)
+  const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false)
+  
+  const [departureTimes, setDepartureTimes] = useState<any[]>([])
+  const [newDepartureTime, setNewDepartureTime] = useState('')
+  
+  const [extraPrices, setExtraPrices] = useState<any[]>([])
+  const [newExtraAmount, setNewExtraAmount] = useState('')
+  const [newExtraDesc, setNewExtraDesc] = useState('')
 
   // Routes State
   const [routes, setRoutes] = useState<any[]>([])
@@ -38,7 +51,29 @@ export default function Settings() {
   const fetchData = async () => {
     setIsRefreshing(true)
     setError('')
+    setSuccessMsg('')
     try {
+      // Fetch App Settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('app_settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle()
+      
+      if (!settingsError && settingsData) {
+        setAppSettings(settingsData)
+        setProfitPercentage(settingsData.profit_percentage)
+        setMaintenanceMode(settingsData.maintenance_mode)
+      }
+
+      // Fetch Departure Times
+      const { data: deptData } = await supabase.from('departure_times').select('*').order('time_string', { ascending: true })
+      if (deptData) setDepartureTimes(deptData)
+
+      // Fetch Extra Prices
+      const { data: extraData } = await supabase.from('extra_prices').select('*').order('amount', { ascending: true })
+      if (extraData) setExtraPrices(extraData)
+
       // Fetch routes
       const { data: routesData, error: routesError } = await supabase
         .from('routes')
@@ -83,10 +118,72 @@ export default function Settings() {
 
     } catch (err: any) {
       console.error(err)
-      setError('Gagal memuat data: ' + err.message)
+      setError('Gagal memuat data: (Pastikan Anda sudah menjalankan script SQL database_setup.sql) ' + err.message)
     } finally {
       setIsRefreshing(false)
     }
+  }
+
+  // --- GLOBAL SETTINGS LOGIC ---
+  const handleSaveGlobalSettings = async () => {
+    setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
+    try {
+      if (appSettings) {
+        const { error } = await supabase.from('app_settings').update({
+          profit_percentage: profitPercentage,
+          maintenance_mode: maintenanceMode
+        }).eq('id', appSettings.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('app_settings').insert({
+          profit_percentage: profitPercentage,
+          maintenance_mode: maintenanceMode
+        })
+        if (error) throw error
+      }
+      setSuccessMsg('Pengaturan Umum berhasil disimpan!')
+      fetchData()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const handleAddDepartureTime = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newDepartureTime) return
+    setIsRefreshing(true)
+    const { error } = await supabase.from('departure_times').insert({ time_string: newDepartureTime })
+    setIsRefreshing(false)
+    if (!error) { setNewDepartureTime(''); fetchData() }
+    else setError(error.message)
+  }
+
+  const handleDeleteDepartureTime = async (id: string) => {
+    setIsRefreshing(true)
+    await supabase.from('departure_times').delete().eq('id', id)
+    setIsRefreshing(false)
+    fetchData()
+  }
+
+  const handleAddExtraPrice = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newExtraAmount) return
+    setIsRefreshing(true)
+    const { error } = await supabase.from('extra_prices').insert({ amount: Number(newExtraAmount), description: newExtraDesc || `+ Rp ${Number(newExtraAmount).toLocaleString('id-ID')}` })
+    setIsRefreshing(false)
+    if (!error) { setNewExtraAmount(''); setNewExtraDesc(''); fetchData() }
+    else setError(error.message)
+  }
+
+  const handleDeleteExtraPrice = async (id: string) => {
+    setIsRefreshing(true)
+    await supabase.from('extra_prices').delete().eq('id', id)
+    setIsRefreshing(false)
+    fetchData()
   }
 
   // --- ROUTES LOGIC ---
@@ -236,8 +333,8 @@ export default function Settings() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Pengaturan Layanan</h1>
-          <p className="text-sm text-gray-500 mt-1">Kelola Rute Perjalanan dan Daftar Harga Layanan</p>
+          <h1 className="text-2xl font-bold text-gray-800">Pengaturan Sistem</h1>
+          <p className="text-sm text-gray-500 mt-1">Kelola Pengaturan Global, Rute, Harga, dan Pembayaran</p>
         </div>
         <button 
           onClick={fetchData}
@@ -249,31 +346,39 @@ export default function Settings() {
       </div>
 
       {error && <div className="p-4 bg-red-100 text-red-700 font-bold rounded-xl text-sm">{error}</div>}
+      {successMsg && <div className="p-4 bg-green-100 text-green-700 font-bold rounded-xl text-sm">{successMsg}</div>}
 
-      <div className="flex space-x-2 border-b border-gray-200">
+      <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto scrollbar-hide">
         <button
-          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'ROUTES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'GLOBAL' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('GLOBAL')}
+        >
+          <SettingsIcon size={18} />
+          <span>Pengaturan Global</span>
+        </button>
+        <button
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'ROUTES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('ROUTES')}
         >
           <Map size={18} />
           <span>Manajemen Rute</span>
         </button>
         <button
-          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'PRICES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'PRICES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('PRICES')}
         >
           <Tag size={18} />
           <span>Manajemen Harga & Jasa</span>
         </button>
         <button
-          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'BANKS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'BANKS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('BANKS')}
         >
           <Landmark size={18} />
           <span>Rekening Pembayaran</span>
         </button>
         <button
-          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'QRIS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'QRIS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('QRIS')}
         >
           <QrCode size={18} />
@@ -281,6 +386,87 @@ export default function Settings() {
         </button>
       </div>
 
+      {activeTab === 'GLOBAL' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Profit & Maintenance */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit space-y-6">
+            <h2 className="text-lg font-bold text-gray-800 flex items-center"><TrendingUp size={20} className="mr-2 text-primary"/> Pengaturan Aplikasi</h2>
+            
+            <div>
+              <label className="text-sm font-bold text-gray-700">Persentase Profit / Potongan Admin (%)</label>
+              <div className="mt-2 relative">
+                <input 
+                  type="number" 
+                  value={profitPercentage} 
+                  onChange={e => setProfitPercentage(Number(e.target.value))}
+                  className="w-full border border-gray-300 rounded-xl p-3 pr-10 focus:border-primary outline-none" 
+                  min="0" max="100"
+                />
+                <span className="absolute right-4 top-3.5 text-gray-500 font-bold">%</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Potongan ini akan memotong saldo driver setelah pesanan selesai.</p>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-orange-50 rounded-xl border border-orange-100">
+              <div>
+                <h3 className="font-bold text-orange-800 flex items-center"><AlertTriangle size={16} className="mr-1"/> Mode Perbaikan (Maintenance)</h3>
+                <p className="text-xs text-orange-600 mt-1">Jika aktif, penumpang tidak bisa mengakses aplikasi.</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" checked={maintenanceMode} onChange={() => setMaintenanceMode(!maintenanceMode)} />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+              </label>
+            </div>
+
+            <button 
+              onClick={handleSaveGlobalSettings}
+              disabled={isRefreshing}
+              className="w-full bg-primary text-white font-bold rounded-xl py-3 hover:bg-blue-600 transition active:scale-95"
+            >
+              Simpan Pengaturan
+            </button>
+          </div>
+
+          {/* Jam Keberangkatan & Jarak Jauh */}
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Clock size={20} className="mr-2 text-primary"/> Jam Keberangkatan Carpool</h2>
+              <form onSubmit={handleAddDepartureTime} className="flex space-x-2 mb-4">
+                <input required type="time" value={newDepartureTime} onChange={e=>setNewDepartureTime(e.target.value)} className="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
+                <button type="submit" className="bg-gray-900 text-white px-4 rounded-lg font-bold hover:bg-black transition"><Plus size={18}/></button>
+              </form>
+              <div className="flex flex-wrap gap-2">
+                {departureTimes.map(dt => (
+                  <div key={dt.id} className="flex items-center bg-gray-100 rounded-full pl-3 pr-1 py-1">
+                    <span className="text-sm font-bold text-gray-700 mr-2">{dt.time_string}</span>
+                    <button onClick={() => handleDeleteDepartureTime(dt.id)} className="bg-white p-1 rounded-full text-red-500 hover:bg-red-50"><Trash2 size={12}/></button>
+                  </div>
+                ))}
+                {departureTimes.length === 0 && <span className="text-sm text-gray-400">Belum ada jadwal.</span>}
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Map size={20} className="mr-2 text-primary"/> Harga Tambahan Jarak Jauh</h2>
+              <form onSubmit={handleAddExtraPrice} className="flex space-x-2 mb-4">
+                <input required type="number" value={newExtraAmount} onChange={e=>setNewExtraAmount(e.target.value)} placeholder="Nominal (Rp)" className="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
+                <button type="submit" className="bg-gray-900 text-white px-4 rounded-lg font-bold hover:bg-black transition"><Plus size={18}/></button>
+              </form>
+              <div className="flex flex-wrap gap-2">
+                {extraPrices.map(ep => (
+                  <div key={ep.id} className="flex items-center bg-gray-100 rounded-lg pl-3 pr-1 py-1 border border-gray-200">
+                    <span className="text-sm font-bold text-gray-700 mr-2">Rp {Number(ep.amount).toLocaleString('id-ID')}</span>
+                    <button onClick={() => handleDeleteExtraPrice(ep.id)} className="bg-white p-1.5 rounded-md text-red-500 hover:bg-red-50"><Trash2 size={14}/></button>
+                  </div>
+                ))}
+                {extraPrices.length === 0 && <span className="text-sm text-gray-400">Belum ada harga tambahan.</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OTHER TABS OMITTED FOR BREVITY BUT THEY ARE RETAINED IDENTICALLY FROM PREVIOUS VERSION */}
       {activeTab === 'ROUTES' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
@@ -374,25 +560,25 @@ export default function Settings() {
 
               {newProductType === 'TITIP_BARANG' && (
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase">Kategori Ukuran</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase">Perhitungan Berat</label>
                   <select required value={newDescription} onChange={e=>setNewDescription(e.target.value)} className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none">
-                    <option value="" disabled>Pilih Ukuran...</option>
-                    <option value="KECIL">Paket Kecil</option>
-                    <option value="SEDANG">Paket Sedang</option>
-                    <option value="BESAR">Paket Besar</option>
+                    <option value="" disabled>Pilih Komponen Harga...</option>
+                    <option value="BASE_PRICE">Harga Dasar (Flat)</option>
+                    <option value="PRICE_PER_KG">Harga Per Kg Tambahan</option>
                   </select>
+                  <p className="text-[10px] text-gray-400 mt-1">Gunakan BASE_PRICE untuk harga dasar pengiriman, dan PRICE_PER_KG jika ingin menambah tarif tiap kg.</p>
                 </div>
               )}
 
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Harga Dasar (Rp)</label>
+                <label className="text-xs font-bold text-gray-500 uppercase">Harga / Tarif (Rp)</label>
                 <input required type="number" value={newBasePrice} onChange={e=>setNewBasePrice(e.target.value)} placeholder="Contoh: 25000" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
               </div>
 
               {newProductType !== 'TITIP_BARANG' && (
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase">Deskripsi (Opsional)</label>
-                  <input type="text" value={newDescription} onChange={e=>setNewDescription(e.target.value)} placeholder="Contoh: Termasuk Tol" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
+                  <input type="text" value={newDescription} onChange={e=>setNewDescription(e.target.value)} placeholder="Contoh: Termasuk Tol / Luar Kota" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none" />
                 </div>
               )}
 
