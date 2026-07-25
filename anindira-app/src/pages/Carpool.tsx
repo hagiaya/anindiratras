@@ -57,6 +57,33 @@ export default function Carpool() {
     return Math.max(0, totalBase - discount)
   }
 
+  const getSeatType = (seatNum: number, currentCarType: string) => {
+    if (seatNum === 1) return 'DEPAN'
+    if (currentCarType === '4_SEATS' || currentCarType === '5_SEATS') {
+      return 'TENGAH'
+    }
+    if (currentCarType === '6_SEATS') {
+      if (seatNum >= 2 && seatNum <= 4) return 'TENGAH'
+      if (seatNum >= 5 && seatNum <= 6) return 'BELAKANG'
+    }
+    if (currentCarType === '7_SEATS') {
+      if (seatNum >= 2 && seatNum <= 4) return 'TENGAH'
+      if (seatNum >= 5 && seatNum <= 7) return 'BELAKANG'
+    }
+    return 'TENGAH'
+  }
+
+  const calculateTotalBase = () => {
+    if (!selectedRoute) return 0
+    let total = 0
+    selectedSeats.forEach(seat => {
+      const type = getSeatType(seat, carType)
+      const price = selectedRoute.prices?.[type] || selectedRoute.base_price
+      total += price
+    })
+    return total
+  }
+
   const handleApplyPromo = async () => {
     if (!promoCode || !selectedRoute) return
     setPromoLoading(true)
@@ -74,7 +101,7 @@ export default function Carpool() {
 
       if (error || !data) throw new Error('Kode promo tidak valid atau sudah tidak aktif')
       
-      const currentBase = selectedRoute.base_price * selectedSeats.length
+      const currentBase = calculateTotalBase()
       if (currentBase < data.min_order_amount) {
         throw new Error(`Minimal transaksi Rp ${data.min_order_amount.toLocaleString('id-ID')} untuk promo ini`)
       }
@@ -93,7 +120,7 @@ export default function Carpool() {
       setLoading(true)
       const { data, error } = await supabase
         .from('product_prices')
-        .select('base_price, routes(id, name, route_type)')
+        .select('base_price, seat_type, routes(id, name, route_type)')
         .eq('product_type', 'CARPOOL')
       
       if (data) {
@@ -103,13 +130,28 @@ export default function Carpool() {
             id: item.routes.id,
             name: item.routes.name,
             route_type: item.routes.route_type,
-            base_price: Number(item.base_price)
+            base_price: Number(item.base_price),
+            seat_type: item.seat_type
           }))
           
         const uniqueRoutes = new Map()
         formattedRoutes.forEach(r => {
-          if (!uniqueRoutes.has(r.id) || uniqueRoutes.get(r.id).base_price > r.base_price) {
-            uniqueRoutes.set(r.id, r)
+          if (!uniqueRoutes.has(r.id)) {
+            uniqueRoutes.set(r.id, {
+              id: r.id,
+              name: r.name,
+              route_type: r.route_type,
+              base_price: r.base_price, // minimum base price for display
+              prices: {
+                [r.seat_type]: r.base_price
+              }
+            })
+          } else {
+            const existing = uniqueRoutes.get(r.id)
+            existing.prices[r.seat_type] = r.base_price
+            if (r.base_price < existing.base_price) {
+              existing.base_price = r.base_price
+            }
           }
         })
         
@@ -148,7 +190,7 @@ export default function Carpool() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user && !localStorage.getItem('demo_mode')) throw new Error('User not logged in')
 
-      const currentBase = (selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice ? selectedExtraPrice.amount : 0)
+      const currentBase = calculateTotalBase() + (selectedExtraPrice ? selectedExtraPrice.amount : 0)
       const totalPrice = getFinalPrice(currentBase)
 
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
@@ -327,7 +369,7 @@ export default function Carpool() {
               <div className="flex items-center justify-between font-bold text-gray-800">
                 <span>Harga Sementara ({selectedSeats.length} Kursi)</span>
                 <div className="text-right">
-                  <span className="text-primary">Rp {(selectedRoute.base_price * selectedSeats.length).toLocaleString('id-ID')}</span>
+                  <span className="text-primary">Rp {calculateTotalBase().toLocaleString('id-ID')}</span>
                 </div>
               </div>
             </div>
@@ -464,7 +506,7 @@ export default function Carpool() {
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <div className="flex items-center justify-between font-bold text-gray-800 mb-2">
                 <span className="text-sm">Tiket ({selectedSeats.length} Kursi)</span>
-                <span>Rp {(selectedRoute.base_price * selectedSeats.length).toLocaleString('id-ID')}</span>
+                <span>Rp {calculateTotalBase().toLocaleString('id-ID')}</span>
               </div>
               {selectedExtraPrice && (
                 <div className="flex items-center justify-between font-bold text-gray-800 mb-2 border-t border-blue-200 pt-2">
@@ -476,15 +518,15 @@ export default function Carpool() {
               <div className="flex items-center justify-between font-bold text-gray-800 border-t border-blue-200 pt-2 mt-2">
                 <span>Total Harga</span>
                 <div className="text-right">
-                  {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0)).toLocaleString('id-ID')}</span>}
-                  <span className="text-primary text-xl">Rp {getFinalPrice((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0)).toLocaleString('id-ID')}</span>
+                  {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {(calculateTotalBase() + (selectedExtraPrice?.amount || 0)).toLocaleString('id-ID')}</span>}
+                  <span className="text-primary text-xl">Rp {getFinalPrice(calculateTotalBase() + (selectedExtraPrice?.amount || 0)).toLocaleString('id-ID')}</span>
                 </div>
               </div>
               
               {promoData && (
                 <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-1">
                   <span>Diskon Promo ({promoData.code})</span>
-                  <span>- Rp {(((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0)) - getFinalPrice((selectedRoute.base_price * selectedSeats.length) + (selectedExtraPrice?.amount || 0))).toLocaleString('id-ID')}</span>
+                  <span>- Rp {((calculateTotalBase() + (selectedExtraPrice?.amount || 0)) - getFinalPrice(calculateTotalBase() + (selectedExtraPrice?.amount || 0))).toLocaleString('id-ID')}</span>
                 </div>
               )}
             </div>
