@@ -17,7 +17,7 @@ export function getHaversineDistance(lat1: number, lon1: number, lat2: number, l
 
 /**
  * Fetches actual driving distance in kilometers using OSRM (Open Source Routing Machine).
- * Falls back to Haversine straight-line x 1.3 (road circuity factor) if OSRM is unreachable.
+ * Uses dual mirror endpoints with 8s timeout, and falls back to terrain-aware circuity estimation for Eastern Indonesia / Sulawesi.
  */
 export async function getRealDrivingDistance(
   lat1: number,
@@ -27,29 +27,41 @@ export async function getRealDrivingDistance(
 ): Promise<number> {
   if (!lat1 || !lng1 || !lat2 || !lng2) return 0
 
-  try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 4000)
+  const endpoints = [
+    `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`,
+    `https://routing.openstreetmap.de/routed-car/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`
+  ]
 
-    const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`
-    const res = await fetch(url, { signal: controller.signal })
-    clearTimeout(timeoutId)
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
 
-    if (res.ok) {
-      const data = await res.json()
-      if (data && data.routes && data.routes.length > 0) {
-        const distanceMeters = data.routes[0].distance
-        const distanceKm = distanceMeters / 1000
-        return Math.round(distanceKm * 10) / 10 // Round to 1 decimal place
+      const res = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeoutId)
+
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.routes && data.routes.length > 0 && data.routes[0].distance > 0) {
+          const distanceKm = data.routes[0].distance / 1000
+          return Math.round(distanceKm * 10) / 10 // Round to 1 decimal place
+        }
       }
+    } catch (err) {
+      console.warn(`Routing endpoint ${url} failed, trying next fallback...`, err)
     }
-  } catch (err) {
-    console.warn('OSRM routing fetch failed, using road circuity fallback:', err)
   }
 
-  // Fallback: Haversine * 1.3 road circuity estimation
+  // Realistic terrain-aware fallback calculation for Indonesia/Sulawesi winding roads
   const straightLine = getHaversineDistance(lat1, lng1, lat2, lng2)
-  return Math.round((straightLine * 1.3) * 10) / 10
+  let circuityFactor = 1.48 // short route / city
+  if (straightLine > 100) {
+    circuityFactor = 2.28 // long intercity mountainous coastal route (e.g. Gorontalo to Manado: ~181km straight -> ~413km road)
+  } else if (straightLine > 30) {
+    circuityFactor = 1.60 // medium route (e.g. Gorontalo to Jalaluddin: ~23km straight -> ~37km road)
+  }
+
+  return Math.round((straightLine * circuityFactor) * 10) / 10
 }
 
 /**
