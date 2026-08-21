@@ -1,38 +1,25 @@
-import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase } from './supabase';
 
 export const initializePushNotifications = async () => {
   try {
-    const isCapacitor = (window as any).Capacitor && (window as any).Capacitor.isNative;
-    if (!isCapacitor) {
-      console.log('Local notifications are only available on native devices.');
+    // Check if browser supports notifications
+    if (!("Notification" in window)) {
+      console.log("This browser does not support desktop notification");
       return;
     }
 
-    let permStatus = await LocalNotifications.checkPermissions();
-
-    if (permStatus.display === 'prompt') {
-      permStatus = await LocalNotifications.requestPermissions();
-    }
-
-    if (permStatus.display !== 'granted') {
-      console.warn('User denied local notification permission');
-      return;
-    }
-
-    if ((window as any).Capacitor.getPlatform() === 'android') {
-      try {
-        await LocalNotifications.createChannel({
-          id: 'high_importance_channel',
-          name: 'Important Notifications',
-          description: 'Notifikasi penting untuk Orderan dan Chat',
-          importance: 5, // 5 = High importance (heads-up notification)
-          visibility: 1,
-          vibration: true,
-        });
-      } catch (err) {
-        console.error('Error creating notification channel', err);
+    // Request permission
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        console.warn('User denied local notification permission');
+        return;
       }
+    }
+
+    if (Notification.permission !== "granted") {
+      console.warn('Notification permission not granted');
+      return;
     }
 
     // Prevent duplicate listeners
@@ -45,6 +32,32 @@ export const initializePushNotifications = async () => {
     if (!session?.user) return;
     const userId = session.user.id;
     const role = session.user.user_metadata?.role || 'USER';
+
+    const playSound = () => {
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.play().catch(e => console.log('Auto-play prevented', e));
+      } catch (e) {
+        console.log('Audio error', e);
+      }
+    };
+
+    const showNotification = (title: string, body: string, urlPath?: string) => {
+      playSound();
+      
+      const notification = new Notification(title, {
+        body,
+        icon: '/favicon.svg'
+      });
+
+      notification.onclick = () => {
+        window.focus();
+        if (urlPath) {
+          window.location.href = urlPath;
+        }
+        notification.close();
+      };
+    };
 
     // 1. Subscribe to new Chats (where receiver_id == my_id)
     supabase
@@ -59,24 +72,7 @@ export const initializePushNotifications = async () => {
         },
         async (payload: any) => {
           const newChat = payload.new;
-          
-          // Show Local Notification
-          await LocalNotifications.schedule({
-            notifications: [
-              {
-                title: "Pesan Baru",
-                body: newChat.message,
-                id: Math.floor(Math.random() * 100000),
-                schedule: { at: new Date(Date.now() + 100) },
-                channelId: 'high_importance_channel',
-                actionTypeId: '',
-                extra: {
-                  type: 'NEW_CHAT',
-                  chatId: newChat.id,
-                },
-              },
-            ],
-          });
+          showNotification("Pesan Baru", newChat.message, `/chat/${newChat.room_id || ''}`);
         }
       )
       .subscribe();
@@ -95,34 +91,12 @@ export const initializePushNotifications = async () => {
           },
           async (payload: any) => {
             const newOrder = payload.new;
-            
-            // Show Local Notification
-            await LocalNotifications.schedule({
-              notifications: [
-                {
-                  title: "Orderan Baru Masuk!",
-                  body: `Layanan ${newOrder.order_type.replace('_', ' ')} senilai Rp ${newOrder.total_price.toLocaleString('id-ID')} tersedia.`,
-                  id: Math.floor(Math.random() * 100000),
-                  schedule: { at: new Date(Date.now() + 100) },
-                  channelId: 'high_importance_channel',
-                  actionTypeId: '',
-                  extra: {
-                    type: 'NEW_ORDER',
-                    orderId: newOrder.id,
-                  },
-                },
-              ],
-            });
+            const body = `Layanan ${newOrder.order_type.replace('_', ' ')} senilai Rp ${newOrder.total_price.toLocaleString('id-ID')} tersedia.`;
+            showNotification("Orderan Baru Masuk!", body, '/driver');
           }
         )
         .subscribe();
     }
-
-    // Listen to local notification clicks
-    LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
-      console.log('Notification clicked: ', notification.notification.extra);
-      // Navigate to chat or order based on extra payload if needed
-    });
 
   } catch (error) {
     console.error('Failed to initialize local notifications', error);

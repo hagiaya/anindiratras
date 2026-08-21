@@ -1,8 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, CreditCard, Wallet, Banknote, PlaneTakeoff, PlaneLanding, Calendar, Clock, Car } from 'lucide-react'
+import { ArrowLeft, MapPin, CreditCard, Banknote, Wallet, Car, PlaneTakeoff, PlaneLanding, Calendar, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
+import { getRealDrivingDistance, geocodeAddress as geocodeAddressUtil } from '../lib/distance'
+
+const AIRPORTS = [
+  { id: 'jalaluddin', name: 'Bandara Jalaluddin (Gorontalo)', lat: 0.6366, lng: 122.8519 },
+  { id: 'sam_ratulangi', name: 'Bandara Sam Ratulangi (Manado)', lat: 1.5494, lng: 124.9261 },
+  { id: 'mutiara', name: 'Bandara Mutiara SIS Al-Jufrie (Palu)', lat: -0.9181, lng: 119.9097 },
+  { id: 'hasanuddin', name: 'Bandara Sultan Hasanuddin (Makassar)', lat: -5.0614, lng: 119.5533 },
+  { id: 'panua', name: 'Bandara Panua (Pohuwato)', lat: 0.5050, lng: 121.9320 },
+]
 
 export default function Airport() {
   const navigate = useNavigate()
@@ -10,7 +19,7 @@ export default function Airport() {
   
   const [direction, setDirection] = useState<'TO_AIRPORT' | 'FROM_AIRPORT'>('TO_AIRPORT')
   const [pickup, setPickup] = useState('')
-  const [dropoff, setDropoff] = useState('Bandara (YIA / Adisutjipto)')
+  const [dropoff, setDropoff] = useState('')
   const [pickupLat, setPickupLat] = useState<number | null>(null)
   const [pickupLng, setPickupLng] = useState<number | null>(null)
   const [dropoffLat, setDropoffLat] = useState<number | null>(null)
@@ -36,17 +45,79 @@ export default function Airport() {
   const [promoError, setPromoError] = useState('')
   const [promoSuccess, setPromoSuccess] = useState('')
 
+  const [airportPrices, setAirportPrices] = useState<any[]>([])
+  const [distanceKm, setDistanceKm] = useState<number>(0)
+  const [isGeocoding, setIsGeocoding] = useState(false)
+
+  useEffect(() => {
+    fetchPrices()
+  }, [])
+
+  const fetchPrices = async () => {
+    const { data } = await supabase.from('product_prices').select('*').in('product_type', ['AIRPORT', 'ANTAR_BANDARA'])
+    if (data) setAirportPrices(data)
+  }
+
+  // Calculate real road driving distance when coordinates change
+  useEffect(() => {
+    const calcDistance = async () => {
+      if (pickupLat && pickupLng && dropoffLat && dropoffLng) {
+        setIsGeocoding(true)
+        const dist = await getRealDrivingDistance(pickupLat, pickupLng, dropoffLat, dropoffLng)
+        setDistanceKm(dist)
+        setIsGeocoding(false)
+      } else {
+        setDistanceKm(0)
+      }
+    }
+    calcDistance()
+  }, [pickupLat, pickupLng, dropoffLat, dropoffLng])
+
+  const handleGeocodeBlur = async (address: string, type: 'PICKUP' | 'DROPOFF') => {
+    if (!address.trim()) return
+    setIsGeocoding(true)
+    const coords = await geocodeAddressUtil(address)
+    if (coords) {
+      if (type === 'PICKUP') {
+        setPickupLat(coords.lat)
+        setPickupLng(coords.lng)
+      } else {
+        setDropoffLat(coords.lat)
+        setDropoffLng(coords.lng)
+      }
+    }
+    setIsGeocoding(false)
+  }
+
   useEffect(() => {
     if (direction === 'TO_AIRPORT') {
-      setDropoff('Bandara (YIA / Adisutjipto)')
       setPickup('')
+      setPickupLat(null)
+      setPickupLng(null)
+      setDropoff(AIRPORTS[0].name)
+      setDropoffLat(AIRPORTS[0].lat)
+      setDropoffLng(AIRPORTS[0].lng)
     } else {
-      setPickup('Bandara (YIA / Adisutjipto)')
       setDropoff('')
+      setDropoffLat(null)
+      setDropoffLng(null)
+      setPickup(AIRPORTS[0].name)
+      setPickupLat(AIRPORTS[0].lat)
+      setPickupLng(AIRPORTS[0].lng)
     }
   }, [direction])
 
-  const basePrice = carSize === 'KECIL' ? 150000 : 250000
+  // Pricing logic using Admin Settings
+  const basePriceData = airportPrices.find(p => p.description === `BASE_PRICE_AIRPORT_${carSize}`)
+  const perKmPriceData = airportPrices.find(p => p.description === `PRICE_PER_KM_AIRPORT_${carSize}`)
+
+  const defaultBasePrice = carSize === 'KECIL' ? 50000 : 75000
+  const defaultPricePerKm = carSize === 'KECIL' ? 5000 : 7000
+
+  const adminBasePrice = basePriceData ? Number(basePriceData.base_price) : defaultBasePrice
+  const adminPricePerKm = perKmPriceData ? Number(perKmPriceData.base_price) : defaultPricePerKm
+
+  const basePrice = adminBasePrice + (Math.round(distanceKm) * adminPricePerKm)
 
   const getFinalPrice = (totalBase: number) => {
     if (!promoData) return totalBase
@@ -94,6 +165,44 @@ export default function Airport() {
     }
   }
 
+  const handleNextStep1 = async () => {
+    setError('')
+    setIsGeocoding(true)
+
+    let pLat = pickupLat
+    let pLng = pickupLng
+    let dLat = dropoffLat
+    let dLng = dropoffLng
+
+    if (!pLat || !pLng) {
+      const coords = await geocodeAddressUtil(pickup)
+      if (coords) {
+        pLat = coords.lat
+        pLng = coords.lng
+        setPickupLat(coords.lat)
+        setPickupLng(coords.lng)
+      }
+    }
+
+    if (!dLat || !dLng) {
+      const coords = await geocodeAddressUtil(dropoff)
+      if (coords) {
+        dLat = coords.lat
+        dLng = coords.lng
+        setDropoffLat(coords.lat)
+        setDropoffLng(coords.lng)
+      }
+    }
+
+    if (pLat && pLng && dLat && dLng) {
+      const dist = await getRealDrivingDistance(pLat, pLng, dLat, dLng)
+      setDistanceKm(dist)
+    }
+
+    setIsGeocoding(false)
+    setStep(2)
+  }
+
   const handleCheckout = async () => {
     setLoading(true)
     setError('')
@@ -118,7 +227,7 @@ export default function Airport() {
             dropoff_address: dropoff,
             dropoff_lat: dropoffLat,
             dropoff_lng: dropoffLng,
-            package_details: JSON.stringify({ direction, carSize, pickupDate, pickupTime }),
+            package_details: JSON.stringify({ direction, carSize, pickupDate, pickupTime, distanceKm, adminBasePrice, adminPricePerKm }),
             total_price: totalPrice,
             promo_id: promoData?.id || null
           }
@@ -189,18 +298,37 @@ export default function Airport() {
                   <div className="flex-1">
                     <label className="text-xs font-semibold text-gray-500">Lokasi Penjemputan</label>
                     <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-cyan-500 transition-colors">
-                      <input
-                        type="text"
-                        value={pickup}
-                        onChange={e => setPickup(e.target.value)}
-                        placeholder="Cari lokasi penjemputan..."
-                        className="w-full font-medium text-gray-800 focus:outline-none"
-                        disabled={direction === 'FROM_AIRPORT'}
-                      />
-                      {direction !== 'FROM_AIRPORT' && (
-                        <button onClick={() => { setMapTarget('PICKUP'); setIsMapOpen(true); }} className="text-xs font-bold text-cyan-600 whitespace-nowrap bg-cyan-50 px-2 py-1 rounded-md">
-                          Peta
-                        </button>
+                      {direction === 'FROM_AIRPORT' ? (
+                        <select 
+                          value={pickup}
+                          onChange={e => {
+                            const ap = AIRPORTS.find(a => a.name === e.target.value)
+                            if (ap) {
+                              setPickup(ap.name)
+                              setPickupLat(ap.lat)
+                              setPickupLng(ap.lng)
+                            }
+                          }}
+                          className="w-full font-medium text-gray-800 focus:outline-none bg-transparent"
+                        >
+                          {AIRPORTS.map(ap => (
+                            <option key={ap.id} value={ap.name}>{ap.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={pickup}
+                            onChange={e => setPickup(e.target.value)}
+                            onBlur={() => handleGeocodeBlur(pickup, 'PICKUP')}
+                            placeholder="Ketik alamat jemput..."
+                            className="w-full font-medium text-gray-800 focus:outline-none"
+                          />
+                          <button onClick={() => { setMapTarget('PICKUP'); setIsMapOpen(true); }} className="text-xs font-bold text-cyan-600 whitespace-nowrap bg-cyan-50 px-2 py-1 rounded-md active:scale-95 transition">
+                            Peta
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -212,18 +340,37 @@ export default function Airport() {
                   <div className="flex-1">
                     <label className="text-xs font-semibold text-gray-500">Lokasi Pengantaran</label>
                     <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-cyan-500 transition-colors">
-                      <input
-                        type="text"
-                        value={dropoff}
-                        onChange={e => setDropoff(e.target.value)}
-                        placeholder="Cari lokasi pengantaran..."
-                        className="w-full font-medium text-gray-800 focus:outline-none"
-                        disabled={direction === 'TO_AIRPORT'}
-                      />
-                      {direction !== 'TO_AIRPORT' && (
-                        <button onClick={() => { setMapTarget('DROPOFF'); setIsMapOpen(true); }} className="text-xs font-bold text-cyan-600 whitespace-nowrap bg-cyan-50 px-2 py-1 rounded-md">
-                          Peta
-                        </button>
+                      {direction === 'TO_AIRPORT' ? (
+                        <select 
+                          value={dropoff}
+                          onChange={e => {
+                            const ap = AIRPORTS.find(a => a.name === e.target.value)
+                            if (ap) {
+                              setDropoff(ap.name)
+                              setDropoffLat(ap.lat)
+                              setDropoffLng(ap.lng)
+                            }
+                          }}
+                          className="w-full font-medium text-gray-800 focus:outline-none bg-transparent"
+                        >
+                          {AIRPORTS.map(ap => (
+                            <option key={ap.id} value={ap.name}>{ap.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={dropoff}
+                            onChange={e => setDropoff(e.target.value)}
+                            onBlur={() => handleGeocodeBlur(dropoff, 'DROPOFF')}
+                            placeholder="Ketik alamat antar..."
+                            className="w-full font-medium text-gray-800 focus:outline-none"
+                          />
+                          <button onClick={() => { setMapTarget('DROPOFF'); setIsMapOpen(true); }} className="text-xs font-bold text-cyan-600 whitespace-nowrap bg-cyan-50 px-2 py-1 rounded-md active:scale-95 transition">
+                            Peta
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -231,9 +378,19 @@ export default function Airport() {
               </div>
             </div>
 
+            <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-4">
+              <div className="flex flex-col space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Jarak Rute Jalan Real (OSRM)</span>
+                  <span className="font-bold text-gray-900">{distanceKm > 0 ? `${distanceKm.toFixed(1)} km` : '-'}</span>
+                </div>
+                {isGeocoding && <p className="text-xs text-cyan-600 animate-pulse mt-1">Sedang menghitung rute jalan real...</p>}
+              </div>
+            </div>
+
             <button
-              disabled={!pickup || !dropoff}
-              onClick={() => setStep(2)}
+              disabled={!pickup || !dropoff || isGeocoding}
+              onClick={handleNextStep1}
               className="mt-6 w-full rounded-full bg-cyan-500 py-4 font-bold text-white shadow-lg shadow-cyan-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               Lanjut Pilih Mobil
@@ -241,7 +398,7 @@ export default function Airport() {
           </div>
         )}
 
-        {/* STEP 2: PILIH MOBIL */}
+        {/* STEP 2: PILIH MOBIL (TARIF ADMIN) */}
         {step === 2 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
@@ -254,7 +411,8 @@ export default function Airport() {
                   <Car size={40} className={carSize === 'KECIL' ? 'text-cyan-500' : 'text-gray-400'} />
                   <span className={`mt-3 font-bold ${carSize === 'KECIL' ? 'text-cyan-600' : 'text-gray-600'}`}>Mobil Kecil</span>
                   <span className="text-xs text-gray-500 mt-1">Maks. 4 Orang</span>
-                  <span className="text-sm font-bold text-cyan-500 mt-2">Rp 150.000</span>
+                  <span className="text-[10px] font-bold text-cyan-600 mt-2">Dasar Rp {adminBasePrice.toLocaleString('id-ID')}</span>
+                  <span className="text-[10px] font-bold text-cyan-600">+ Rp {adminPricePerKm.toLocaleString('id-ID')}/km</span>
                 </button>
                 <button
                   onClick={() => setCarSize('BESAR')}
@@ -263,7 +421,8 @@ export default function Airport() {
                   <Car size={48} className={carSize === 'BESAR' ? 'text-cyan-500' : 'text-gray-400'} />
                   <span className={`mt-3 font-bold ${carSize === 'BESAR' ? 'text-cyan-600' : 'text-gray-600'}`}>Mobil Besar</span>
                   <span className="text-xs text-gray-500 mt-1">Maks. 6-7 Orang</span>
-                  <span className="text-sm font-bold text-cyan-500 mt-2">Rp 250.000</span>
+                  <span className="text-[10px] font-bold text-cyan-600 mt-2">Dasar Rp {adminBasePrice.toLocaleString('id-ID')}</span>
+                  <span className="text-[10px] font-bold text-cyan-600">+ Rp {adminPricePerKm.toLocaleString('id-ID')}/km</span>
                 </button>
               </div>
             </div>
@@ -356,14 +515,25 @@ export default function Airport() {
                   </div>
                 </div>
                 <div className="border-t border-gray-200 my-2"></div>
-                <div className="flex items-center space-x-3">
-                  <Car size={16} className="text-gray-400 shrink-0" />
-                  <p className="text-sm font-bold text-gray-800">Mobil {carSize === 'KECIL' ? 'Kecil' : 'Besar'}</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Car size={16} className="text-gray-400 shrink-0" />
+                    <p className="text-sm font-bold text-gray-800">Mobil {carSize === 'KECIL' ? 'Kecil' : 'Besar'}</p>
+                  </div>
+                  <p className="text-xs font-bold text-cyan-600 bg-cyan-100 px-2 py-1 rounded-md">{distanceKm.toFixed(1)} km (Rute Real)</p>
                 </div>
               </div>
 
               <div className="flex flex-col space-y-2">
-                <div className="flex justify-between items-center text-lg font-bold text-gray-900 mt-2">
+                <div className="flex justify-between items-center text-xs text-gray-500">
+                  <span>Harga Dasar Bandara</span>
+                  <span>Rp {adminBasePrice.toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs text-gray-500">
+                  <span>Biaya Jarak Radius ({(Math.round(distanceKm))} km x Rp {adminPricePerKm.toLocaleString('id-ID')})</span>
+                  <span>Rp {(Math.round(distanceKm) * adminPricePerKm).toLocaleString('id-ID')}</span>
+                </div>
+                <div className="flex justify-between items-center text-lg font-bold text-gray-900 mt-2 border-t pt-2">
                   <span>Total Harga</span>
                   <div className="text-right">
                     {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {basePrice.toLocaleString('id-ID')}</span>}

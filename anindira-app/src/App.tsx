@@ -28,13 +28,6 @@ import { initializePushNotifications } from './lib/pushNotifications'
 import { LayoutDashboard, Users as UsersIcon, Settings, Bell, LogOut, Menu, X, CreditCard, Tag, Store } from 'lucide-react'
 import IncomingCallAlert from './components/IncomingCallAlert'
 
-// Declare Capacitor on Window
-declare global {
-  interface Window {
-    Capacitor: any;
-  }
-}
-
 // Layout for Admin
 function AdminLayout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -176,6 +169,7 @@ function PrivateRoute({ children, requiredRole }: { children: React.ReactNode, r
 
 function App() {
   useEffect(() => {
+
     // Listen for auth state changes to initialize push notifications with valid session
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {

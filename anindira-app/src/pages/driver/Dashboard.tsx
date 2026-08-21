@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { playNotificationSound } from '../../lib/audioNotification'
 import { ArrowLeft, Navigation, CheckCircle2, AlertCircle, Power, ExternalLink, History, User as UserIcon, CarFront, MessageSquare, PhoneCall, Map as MapIcon, Clock, Wallet } from 'lucide-react'
 
 export default function DriverDashboard() {
@@ -13,6 +14,7 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'MAPS' | 'RIWAYAT' | 'PROFIL'>('DASHBOARD')
 
+  const [adminDepartureTimes, setAdminDepartureTimes] = useState<string[]>([])
   const [departureTimes, setDepartureTimes] = useState<{[key: string]: string}>({})
 
   const totalEarnings = history.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0)
@@ -42,7 +44,35 @@ export default function DriverDashboard() {
   }
 
   useEffect(() => {
-    checkSessionAndFetchData()
+    let subscription: any = null;
+
+    const init = async () => {
+      const sessionData = await checkSessionAndFetchData()
+      
+      if (sessionData && !localStorage.getItem('demo_mode')) {
+        subscription = supabase
+          .channel('driver_orders')
+          .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'orders',
+            filter: `driver_id=eq.${sessionData.user.id}`
+          }, (payload: any) => {
+            if (payload.new.status === 'ASSIGNED' && payload.old.status !== 'ASSIGNED') {
+              playNotificationSound()
+            }
+            fetchOrders(sessionData.user.id)
+          })
+          .subscribe()
+      }
+    }
+    init()
+
+    return () => {
+      if (subscription) {
+        supabase.removeChannel(subscription)
+      }
+    }
   }, [])
 
   const checkSessionAndFetchData = async () => {
@@ -75,7 +105,7 @@ export default function DriverDashboard() {
     const { data: { session: currentSession } } = await supabase.auth.getSession()
     if (!currentSession) {
       navigate('/login')
-      return
+      return null
     }
     setSession(currentSession)
 
@@ -86,7 +116,14 @@ export default function DriverDashboard() {
       setDriverBalance(userData.balance || 0)
     }
 
+    // Fetch departure times
+    const { data: depTimes } = await supabase.from('departure_times').select('time_string').order('time_string', { ascending: true })
+    if (depTimes) {
+      setAdminDepartureTimes(depTimes.map(d => d.time_string))
+    }
+
     fetchOrders(currentSession.user.id)
+    return currentSession
   }
 
   const fetchOrders = async (driverId: string) => {
@@ -131,7 +168,18 @@ export default function DriverDashboard() {
     }
 
     if (newStatus === 'COMPLETED') {
-      const isConfirmed = window.confirm('Apakah Anda yakin pesanan sudah selesai? Komisi 10% akan dipotong dari saldo AnindiraPay Anda.');
+      const order = orders.find(o => o.id === orderId);
+      let confirmMsg = 'Apakah Anda yakin pesanan sudah selesai?';
+      
+      if (order?.payment_method === 'CASH') {
+        const commission = (order.total_price * 0.1).toLocaleString('id-ID');
+        confirmMsg = `⚠️ PASTIKAN ANDA MENERIMA UANG TUNAI Rp ${order.total_price.toLocaleString('id-ID')} DARI PENUMPANG!\n\nPesanan sudah selesai? Komisi 10% (Rp ${commission}) akan dipotong dari saldo AnindiraPay Anda.`;
+      } else {
+        const earnings = (order?.total_price * 0.9).toLocaleString('id-ID');
+        confirmMsg = `Pesanan ini sudah dibayar NON-TUNAI.\n\nSelesaikan pesanan untuk menerima pendapatan Rp ${earnings} ke saldo AnindiraPay Anda?`;
+      }
+
+      const isConfirmed = window.confirm(confirmMsg);
       if (!isConfirmed) return;
 
       try {
@@ -211,10 +259,10 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans">
       {/* HEADER */}
-      <div className="sticky top-0 z-50 bg-gray-900 px-4 py-4 shadow-lg text-white">
+      <div className="sticky top-0 z-50 bg-gradient-to-r from-cyan-600 to-blue-700 px-4 py-4 shadow-lg text-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <button onClick={() => navigate('/')} className="p-2 -ml-2 rounded-full hover:bg-gray-800 transition">
+            <button onClick={() => navigate('/')} className="p-2 -ml-2 rounded-full hover:bg-white/20 transition">
               <ArrowLeft size={24} />
             </button>
             <h1 className="text-xl font-black tracking-wide uppercase">Driver Panel</h1>
@@ -241,47 +289,47 @@ export default function DriverDashboard() {
         </div>
         
         {orders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 bg-white rounded-3xl border-2 border-dashed border-gray-200 mt-4">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-400 mb-4">
+          <div className="flex flex-col items-center justify-center p-8 bg-gradient-to-b from-white to-gray-50 rounded-3xl border-2 border-dashed border-gray-200 mt-4 shadow-sm">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center text-gray-400 mb-4 shadow-inner">
               <AlertCircle size={32} />
             </div>
             <p className="text-gray-500 font-bold text-center">Belum ada orderan masuk saat ini.</p>
             {driverStatus === 'INACTIVE' && (
-              <p className="text-sm text-red-500 mt-2 font-black text-center animate-pulse">Geser tombol OFFLINE menjadi SIAP KERJA!</p>
+              <p className="text-sm text-red-500 mt-2 font-black text-center animate-pulse bg-red-50 px-3 py-1 rounded-full border border-red-100">Geser tombol OFFLINE menjadi SIAP KERJA!</p>
             )}
           </div>
         ) : (
           <div className="space-y-6">
             {orders.map(order => (
-              <div key={order.id} className={`rounded-3xl p-5 shadow-lg border-2 relative overflow-hidden transition-all ${order.status === 'ON_THE_WAY' ? 'bg-orange-50 border-orange-200' : 'bg-white border-blue-100'}`}>
+              <div key={order.id} className={`rounded-3xl p-5 shadow-lg border-2 relative overflow-hidden transition-all ${order.status === 'ON_THE_WAY' ? 'bg-gradient-to-br from-orange-50 to-amber-50 border-orange-300 shadow-orange-100' : 'bg-gradient-to-br from-white to-blue-50/50 border-cyan-200 shadow-cyan-100/50'}`}>
                 {/* Header Card */}
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <span className="bg-gray-900 text-white text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider">
+                    <span className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-[11px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider shadow-sm">
                       {order.order_type}
                     </span>
                   </div>
-                  <span className={`text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider ${order.status === 'ON_THE_WAY' ? 'bg-orange-500 text-white animate-pulse' : 'bg-blue-100 text-blue-700'}`}>
+                  <span className={`text-[11px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider shadow-sm ${order.status === 'ON_THE_WAY' ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white animate-pulse' : 'bg-gradient-to-r from-cyan-100 to-blue-100 text-blue-800 border border-blue-200'}`}>
                     {order.status === 'ON_THE_WAY' ? 'DLM PERJALANAN' : 'ORDER BARU'}
                   </span>
                 </div>
 
                 {/* Info Penumpang Ekstra Besar */}
-                <div className="mb-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <div className="mb-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Kontak Penumpang</p>
                   <p className="font-black text-gray-900 text-2xl tracking-tight">{order.users?.phone || 'Unknown'}</p>
                   
                   <div className="flex space-x-3 mt-4">
                     <button 
                       onClick={() => navigate(`/chat/${order.id}`)}
-                      className="flex-1 h-14 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold flex items-center justify-center space-x-2 transition active:scale-95"
+                      className="flex-1 h-14 rounded-xl bg-gradient-to-b from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-200 text-blue-700 font-bold flex items-center justify-center space-x-2 transition active:scale-95 border border-blue-200 shadow-sm"
                     >
                       <MessageSquare size={20} />
                       <span>Chat</span>
                     </button>
                     <button 
                       onClick={() => handleCall(order)}
-                      className="flex-1 h-14 rounded-xl bg-green-100 hover:bg-green-200 text-green-700 font-bold flex items-center justify-center space-x-2 transition active:scale-95"
+                      className="flex-1 h-14 rounded-xl bg-gradient-to-b from-green-50 to-green-100 hover:from-green-100 hover:to-green-200 text-green-700 font-bold flex items-center justify-center space-x-2 transition active:scale-95 border border-green-200 shadow-sm"
                     >
                       <PhoneCall size={20} />
                       <span>Telepon</span>
@@ -290,11 +338,11 @@ export default function DriverDashboard() {
                 </div>
 
                 {/* Rute Singkat */}
-                <div className="flex items-center space-x-3 mb-6 bg-white p-4 rounded-2xl border border-gray-100">
+                <div className="flex items-center space-x-3 mb-6 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                   <div className="flex flex-col items-center">
-                    <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                    <div className="w-3.5 h-3.5 bg-blue-500 rounded-full shadow-sm shadow-blue-200"></div>
                     <div className="w-1 h-6 bg-gray-200 my-1"></div>
-                    <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                    <div className="w-3.5 h-3.5 bg-orange-500 rounded-full shadow-sm shadow-orange-200"></div>
                   </div>
                   <div className="flex-1 space-y-3">
                     <p className="text-sm font-bold text-gray-800 line-clamp-1">{order.pickup_address}</p>
@@ -304,20 +352,24 @@ export default function DriverDashboard() {
 
                 {/* Atur Jam Pemberangkatan (khusus saat ASSIGNED) */}
                 {order.status === 'ASSIGNED' && (
-                  <div className="mb-6 bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                    <label className="text-[11px] font-black text-blue-800 uppercase tracking-widest flex items-center space-x-2 mb-2">
-                      <Clock size={14} /> <span>Estimasi Jemput</span>
+                  <div className="mb-6 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 rounded-2xl border border-cyan-200 shadow-sm">
+                    <label className="text-[11px] font-black text-cyan-800 uppercase tracking-widest flex items-center space-x-2 mb-2">
+                      <Clock size={14} /> <span>Atur Jam Pemberangkatan</span>
                     </label>
                     <div className="flex space-x-2">
-                      <input 
-                        type="time" 
+                      <select 
                         value={departureTimes[order.id] || ''}
                         onChange={(e) => setDepartureTimes({...departureTimes, [order.id]: e.target.value})}
-                        className="flex-1 bg-white border border-blue-200 rounded-xl px-3 font-bold text-gray-900 outline-none focus:border-blue-500"
-                      />
+                        className="flex-1 bg-white border border-cyan-300 rounded-xl px-3 font-bold text-gray-900 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 shadow-sm"
+                      >
+                        <option value="" disabled>Pilih Jam (Dari Admin)</option>
+                        {adminDepartureTimes.map(time => (
+                          <option key={time} value={time}>{time} WIB</option>
+                        ))}
+                      </select>
                       <button 
                         onClick={() => handleSetDepartureTime(order)}
-                        className="bg-blue-600 text-white font-bold px-4 py-3 rounded-xl active:scale-95 transition text-sm whitespace-nowrap"
+                        className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold px-4 py-3 rounded-xl active:scale-95 transition text-sm whitespace-nowrap shadow-md shadow-blue-200"
                       >
                         Kirim Info
                       </button>
@@ -331,17 +383,17 @@ export default function DriverDashboard() {
                   {order.status === 'ASSIGNED' ? (
                     <button 
                       onClick={() => handleGo(order)}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white font-black text-xl py-5 rounded-2xl flex items-center justify-center space-x-3 transition active:scale-[0.98] shadow-lg shadow-green-200/50"
+                      className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-black text-xl py-5 rounded-2xl flex items-center justify-center space-x-3 transition active:scale-[0.98] shadow-xl shadow-green-200/50 border border-green-500"
                     >
-                      <span>GO (BERANGKAT)</span>
-                      <Navigation size={24} />
+                      <span>GO (BERANGKAT SEKARANG)</span>
+                      <Navigation size={24} className="animate-bounce" />
                     </button>
                   ) : (
                     <button 
                       onClick={() => updateOrderStatus(order.id, 'COMPLETED')}
-                      className="w-full bg-gray-900 hover:bg-black text-white font-black text-lg py-5 rounded-2xl flex items-center justify-center space-x-3 transition active:scale-[0.98] shadow-lg shadow-gray-500/30"
+                      className="w-full bg-gradient-to-r from-gray-800 to-black hover:from-black hover:to-black text-white font-black text-lg py-5 rounded-2xl flex items-center justify-center space-x-3 transition active:scale-[0.98] shadow-xl shadow-gray-400/30"
                     >
-                      <CheckCircle2 size={24} />
+                      <CheckCircle2 size={24} className="text-green-400" />
                       <span>SELESAIKAN ORDER</span>
                     </button>
                   )}

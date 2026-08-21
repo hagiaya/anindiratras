@@ -48,3 +48,23 @@ USING (true);
 CREATE POLICY "Admins can manage app_settings" 
 ON public.app_settings FOR ALL
 USING (auth.jwt() ->> 'role' = 'ADMIN');
+
+-- Tabel untuk OTA Updates (Capgo)
+CREATE TABLE IF NOT EXISTS public.app_versions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  version_code VARCHAR(50) NOT NULL,
+  zip_url TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RLS Policies untuk app_versions
+ALTER TABLE public.app_versions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view app_versions" 
+ON public.app_versions FOR SELECT 
+USING (true);
+
+CREATE POLICY "Admins can manage app_versions" 
+ON public.app_versions FOR ALL
+USING (auth.jwt() ->> 'role' = 'ADMIN');

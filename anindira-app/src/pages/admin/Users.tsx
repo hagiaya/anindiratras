@@ -25,10 +25,24 @@ export default function Users() {
     }
   }
 
-  const setRole = async (userId: string, newRole: string) => {
-    const { error } = await supabase.from('users').update({ role: newRole }).eq('id', userId)
+  const setRole = async (userId: string, targetPhone: string, newRole: string) => {
+    let cleanPhone = (targetPhone || '').replace(/\D/g, '');
+    if (cleanPhone.startsWith('62')) cleanPhone = cleanPhone.substring(2);
+    if (cleanPhone.startsWith('0')) cleanPhone = cleanPhone.substring(1);
+
+    const filterOr = `id.eq.${userId}` + (cleanPhone ? `,phone.eq.${cleanPhone},phone.eq.0${cleanPhone},phone.eq.62${cleanPhone}` : '');
+    const { error } = await supabase.from('users').update({ role: newRole }).or(filterOr)
+    
     if (!error) {
-      setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u))
+      setUsers(users.map(u => {
+        let uClean = (u.phone || '').replace(/\D/g, '');
+        if (uClean.startsWith('62')) uClean = uClean.substring(2);
+        if (uClean.startsWith('0')) uClean = uClean.substring(1);
+        if (u.id === userId || (cleanPhone && uClean === cleanPhone)) {
+          return { ...u, role: newRole };
+        }
+        return u;
+      }))
     }
   }
 
@@ -111,7 +125,7 @@ export default function Users() {
                       <select
                         className="bg-transparent outline-none cursor-pointer"
                         value={user.role}
-                        onChange={(e) => setRole(user.id, e.target.value)}
+                        onChange={(e) => setRole(user.id, user.phone, e.target.value)}
                       >
                         <option value="USER">Penumpang</option>
                         <option value="DRIVER">Sopir Lapangan</option>

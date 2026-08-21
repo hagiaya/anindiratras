@@ -1,26 +1,30 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, CreditCard, Clock, Wallet, Banknote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
 
 type AreaType = 'DALAM_KOTA' | 'LUAR_KOTA'
-type CarUnit = 'AVANZA' | 'INNOVA' | 'HIACE'
 
-const CARS = [
-  { id: 'AVANZA', name: 'Avanza / Xenia', seats: 6, img: '🚗', basePrice: 350000 },
-  { id: 'INNOVA', name: 'Innova Reborn', seats: 7, img: '🚙', basePrice: 600000 },
-  { id: 'HIACE', name: 'Toyota Hiace', seats: 14, img: '🚐', basePrice: 1200000 },
-] as const
+const DEFAULT_CARS = [
+  { id: 'AVANZA', name: 'Avanza / Xenia', seats: 6, img: '🚗', inCityPrice: 350000, outCityPrice: 500000 },
+  { id: 'INNOVA', name: 'Innova Reborn', seats: 7, img: '🚙', inCityPrice: 600000, outCityPrice: 850000 },
+  { id: 'HIACE', name: 'Toyota Hiace', seats: 14, img: '🚐', inCityPrice: 1200000, outCityPrice: 1600000 },
+]
 
 export default function Rental() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
   
-  const [selectedCar, setSelectedCar] = useState<CarUnit | null>(null)
+  const [dynamicCars, setDynamicCars] = useState<any[]>(DEFAULT_CARS)
+  const [selectedCarId, setSelectedCarId] = useState<string | null>(null)
   
   const [areaType, setAreaType] = useState<AreaType>('DALAM_KOTA')
   const [rentalDays, setRentalDays] = useState<number>(1)
+  
+  // Tanggal dan Jam
+  const [pickupDate, setPickupDate] = useState('')
+  const [pickupTime, setPickupTime] = useState('')
   
   const [pickup, setPickup] = useState('')
   const [pickupLat, setPickupLat] = useState<number | null>(null)
@@ -38,14 +42,47 @@ export default function Rental() {
   const [promoError, setPromoError] = useState('')
   const [promoSuccess, setPromoSuccess] = useState('')
 
-  const getPricePerDay = () => {
-    if (!selectedCar) return 0
-    const carData = CARS.find(c => c.id === selectedCar)
-    let price = carData ? carData.basePrice : 0
-    if (areaType === 'LUAR_KOTA') {
-      price = price * 1.5 // 50% tambahan untuk luar kota, bisa disesuaikan
+  // Fetch dynamic cars configured by Admin in database
+  useEffect(() => {
+    const fetchCars = async () => {
+      const { data } = await supabase.from('product_prices').select('*').eq('product_type', 'SEWA_MOBIL')
+      if (data && data.length > 0) {
+        const fetchedCars = data.map(item => {
+          let name = item.description || 'Mobil'
+          let seats = Number(item.seat_type) || 6
+          let inCityPrice = Number(item.base_price)
+          let outCityPrice = Number(item.base_price) * 1.5
+
+          try {
+            if (item.description && item.description.startsWith('{')) {
+              const parsed = JSON.parse(item.description)
+              name = parsed.name || name
+              seats = parsed.seats || seats
+              inCityPrice = parsed.inCityPrice || inCityPrice
+              outCityPrice = parsed.outCityPrice || outCityPrice
+            }
+          } catch (e) {}
+
+          return {
+            id: item.id,
+            name,
+            seats,
+            img: seats > 8 ? '🚐' : seats > 6 ? '🚙' : '🚗',
+            inCityPrice,
+            outCityPrice
+          }
+        })
+        setDynamicCars(fetchedCars)
+      }
     }
-    return price
+    fetchCars()
+  }, [])
+
+  const selectedCarObj = dynamicCars.find(c => c.id === selectedCarId)
+
+  const getPricePerDay = () => {
+    if (!selectedCarObj) return 0
+    return areaType === 'DALAM_KOTA' ? selectedCarObj.inCityPrice : selectedCarObj.outCityPrice
   }
 
   const getTotalBasePrice = () => {
@@ -100,7 +137,7 @@ export default function Rental() {
   }
 
   const handleCheckout = async () => {
-    if (!selectedCar) return
+    if (!selectedCarObj) return
     
     setLoading(true)
     setError('')
@@ -115,7 +152,6 @@ export default function Rental() {
       const totalBase = getTotalBasePrice()
       const finalPrice = getFinalPrice(totalBase)
 
-      // Call Checkout Edge Function
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
         body: {
           paymentMethod,
@@ -124,8 +160,15 @@ export default function Rental() {
             pickup_address: pickup,
             pickup_lat: pickupLat,
             pickup_lng: pickupLng,
-            rental_duration_hours: rentalDays * 24, // Keep in hours for backend compat if needed
-            package_details: JSON.stringify({ carUnit: selectedCar, areaType, rentalDays }),
+            rental_duration_hours: rentalDays * 24,
+            package_details: JSON.stringify({
+              carUnit: selectedCarObj.name,
+              areaType,
+              rentalDays,
+              pricePerDay: getPricePerDay(),
+              pickupDate,
+              pickupTime
+            }),
             total_price: finalPrice,
             promo_id: promoData?.id || null
           }
@@ -162,19 +205,19 @@ export default function Rental() {
           ))}
         </div>
 
-        {/* STEP 1: PILIH MOBIL */}
+        {/* STEP 1: PILIH MOBIL DARI ADMIN */}
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div>
-              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Unit Mobil</h2>
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Unit Mobil (Input Admin)</h2>
               <div className="space-y-4">
-                {CARS.map(car => (
+                {dynamicCars.map(car => (
                   <div
                     key={car.id}
-                    onClick={() => setSelectedCar(car.id)}
-                    className={`cursor-pointer rounded-2xl border-2 p-5 transition active:scale-[0.98] relative overflow-hidden ${selectedCar === car.id ? 'border-purple-500 bg-white shadow-md' : 'border-gray-100 bg-white shadow-sm'}`}
+                    onClick={() => setSelectedCarId(car.id)}
+                    className={`cursor-pointer rounded-2xl border-2 p-5 transition active:scale-[0.98] relative overflow-hidden ${selectedCarId === car.id ? 'border-purple-500 bg-white shadow-md' : 'border-gray-100 bg-white shadow-sm'}`}
                   >
-                    {selectedCar === car.id && (
+                    {selectedCarId === car.id && (
                       <div className="absolute top-0 right-0 bg-purple-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg">
                         DIPILIH
                       </div>
@@ -183,8 +226,10 @@ export default function Rental() {
                       <div className="text-4xl">{car.img}</div>
                       <div className="flex-1">
                         <h3 className="font-bold text-gray-800 text-lg">{car.name}</h3>
-                        <div className="flex items-center space-x-2 mt-1">
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">Maks {car.seats} Penumpang</span>
+                          <span className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full font-bold">Dalam Kota: Rp {car.inCityPrice.toLocaleString('id-ID')}</span>
+                          <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Luar Kota: Rp {car.outCityPrice.toLocaleString('id-ID')}</span>
                         </div>
                       </div>
                     </div>
@@ -194,7 +239,7 @@ export default function Rental() {
             </div>
 
             <button
-              disabled={!selectedCar}
+              disabled={!selectedCarId}
               onClick={() => setStep(2)}
               className="mt-6 w-full rounded-full bg-purple-500 py-4 font-bold text-white shadow-lg shadow-purple-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
@@ -204,7 +249,7 @@ export default function Rental() {
         )}
 
         {/* STEP 2: DURASI & AREA */}
-        {step === 2 && (
+        {step === 2 && selectedCarObj && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Pilih Layanan Area</h2>
@@ -213,17 +258,17 @@ export default function Rental() {
                   className={`flex-1 rounded-md py-2.5 text-sm font-bold transition ${areaType === 'DALAM_KOTA' ? 'bg-white text-purple-600 shadow' : 'text-gray-600'}`}
                   onClick={() => setAreaType('DALAM_KOTA')}
                 >
-                  Dalam Kota
+                  Dalam Kota (Rp {selectedCarObj.inCityPrice.toLocaleString('id-ID')}/Hari)
                 </button>
                 <button
                   className={`flex-1 rounded-md py-2.5 text-sm font-bold transition ${areaType === 'LUAR_KOTA' ? 'bg-white text-purple-600 shadow' : 'text-gray-600'}`}
                   onClick={() => setAreaType('LUAR_KOTA')}
                 >
-                  Luar Kota
+                  Luar Kota (Rp {selectedCarObj.outCityPrice.toLocaleString('id-ID')}/Hari)
                 </button>
               </div>
 
-              <h2 className="mt-6 mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Sewa Harian</h2>
+              <h2 className="mt-6 mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Durasi Sewa Harian</h2>
               <div className="grid grid-cols-4 gap-2 mb-2">
                 {[1, 2, 3, 4, 5, 6, 7].map(days => (
                   <button
@@ -242,9 +287,12 @@ export default function Rental() {
                 </button>
               </div>
 
-              <div className="mt-4 rounded-xl bg-purple-50 p-3 flex items-start space-x-2 border border-purple-100">
-                <Clock size={16} className="text-purple-500 mt-0.5 shrink-0" />
-                <p className="text-xs font-semibold text-purple-800">Catatan: 1 Hari dihitung dari jam 07:00 pagi sampai jam 22:00 malam.</p>
+              <div className="mt-4 rounded-xl bg-purple-50 p-4 flex items-start space-x-3 border border-purple-100">
+                <Clock size={20} className="text-purple-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-purple-800 uppercase tracking-wide mb-1">Catatan Sewa Mobil</p>
+                  <p className="text-xs font-semibold text-purple-700">1 Hari dihitung dari jam 07:00 pagi sampai jam 22:00 malam.</p>
+                </div>
               </div>
 
               <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
@@ -289,8 +337,47 @@ export default function Rental() {
               </div>
             </div>
 
+            <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100 mt-4">
+              <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Waktu Penjemputan</h2>
+              <div className="space-y-4">
+                <div className="flex items-start space-x-3">
+                  <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                    <Clock size={16} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-gray-500">Tanggal Pemakaian</label>
+                    <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-purple-500 transition-colors">
+                      <input
+                        type="date"
+                        value={pickupDate}
+                        onChange={e => setPickupDate(e.target.value)}
+                        className="w-full font-bold text-gray-800 focus:outline-none bg-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3">
+                  <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-orange-600">
+                    <Clock size={16} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-gray-500">Jam Pemakaian</label>
+                    <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-purple-500 transition-colors">
+                      <input
+                        type="time"
+                        value={pickupTime}
+                        onChange={e => setPickupTime(e.target.value)}
+                        className="w-full font-bold text-gray-800 focus:outline-none bg-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <button
-              disabled={!pickup}
+              disabled={!pickup || !pickupDate || !pickupTime}
               onClick={() => setStep(4)}
               className="mt-6 w-full rounded-full bg-purple-500 py-4 font-bold text-white shadow-lg shadow-purple-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
@@ -300,7 +387,7 @@ export default function Rental() {
         )}
 
         {/* STEP 4: CHECKOUT */}
-        {step === 4 && selectedCar && (
+        {step === 4 && selectedCarObj && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Ringkasan Sewa Mobil</h2>
@@ -309,20 +396,21 @@ export default function Rental() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">Unit Mobil</p>
-                    <h3 className="font-bold text-gray-800 text-lg">{CARS.find(c => c.id === selectedCar)?.name}</h3>
+                    <h3 className="font-bold text-gray-800 text-lg">{selectedCarObj.name}</h3>
                   </div>
-                  <div className="text-3xl">{CARS.find(c => c.id === selectedCar)?.img}</div>
+                  <div className="text-3xl">{selectedCarObj.img}</div>
                 </div>
                 <div className="border-t border-gray-200 my-2"></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">Area & Durasi</p>
                     <p className="text-sm font-semibold text-gray-800">{areaType === 'DALAM_KOTA' ? 'Dalam Kota' : 'Luar Kota'}</p>
-                    <p className="text-xs text-gray-500">{rentalDays} Hari</p>
+                    <p className="text-xs text-gray-500">{rentalDays} Hari (Rp {getPricePerDay().toLocaleString('id-ID')}/Hari)</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase">Fasilitas</p>
-                    <p className="text-sm font-semibold text-gray-800">Mobil + Sopir</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Waktu & Fasilitas</p>
+                    <p className="text-sm font-semibold text-gray-800">{pickupDate} • {pickupTime} WIB</p>
+                    <p className="text-xs text-gray-500">Full AC + Sopir</p>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 my-2"></div>

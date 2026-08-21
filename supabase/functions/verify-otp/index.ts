@@ -49,8 +49,26 @@ serve(async (req) => {
       await supabaseAdmin.from('otp_codes').delete().eq('id', otpData.id)
     }
 
-    // Find user
-    let { data: user } = await supabaseAdmin.from('users').select('*').eq('phone', phone).single()
+    // Clean phone number to match any formatting variant (with 0, 62, or without)
+    const cleanPhone = (p: string) => {
+      let cleaned = (p || '').replace(/\D/g, '');
+      if (cleaned.startsWith('62')) cleaned = cleaned.substring(2);
+      if (cleaned.startsWith('0')) cleaned = cleaned.substring(1);
+      return cleaned;
+    };
+
+    const normPhone = cleanPhone(phone);
+    const altWithZero = "0" + normPhone;
+    const altWith62 = "62" + normPhone;
+
+    // Find user across any phone format variant
+    let { data: foundUsers } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .or(`phone.eq.${phone},phone.eq.${normPhone},phone.eq.${altWithZero},phone.eq.${altWith62}`)
+      .order('created_at', { ascending: false });
+    
+    let user = foundUsers && foundUsers.length > 0 ? foundUsers[0] : null;
     
     if (isRegistering) {
       if (user) {

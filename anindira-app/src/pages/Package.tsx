@@ -3,10 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, Package as PackageIcon, User, Phone, CreditCard, Wallet, Banknote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import MapPickerModal from '../components/MapPickerModal'
+import { getRealDrivingDistance, geocodeAddress as geocodeAddressUtil } from '../lib/distance'
 
 export default function Package() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
+  
+  // Jenis Pengiriman
+  const [packageType, setPackageType] = useState<'DALAM_KOTA' | 'LUAR_KOTA'>('DALAM_KOTA')
   
   // Lokasi
   const [pickup, setPickup] = useState('')
@@ -27,11 +31,12 @@ export default function Package() {
   
   // Detail Barang
   const [itemName, setItemName] = useState('')
-  const [weightKg, setWeightKg] = useState<number>(1)
+  const [weightKg, setWeightKg] = useState<number | ''>('')
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isGeocoding, setIsGeocoding] = useState(false)
 
   // Promo State
   const [promoCode, setPromoCode] = useState('')
@@ -41,6 +46,38 @@ export default function Package() {
   const [promoSuccess, setPromoSuccess] = useState('')
 
   const [packagePrices, setPackagePrices] = useState<any[]>([])
+  const [distanceKm, setDistanceKm] = useState<number>(0)
+
+  // Calculate real road driving distance when coordinates change
+  useEffect(() => {
+    const calcDistance = async () => {
+      if (pickupLat && pickupLng && dropoffLat && dropoffLng) {
+        setIsGeocoding(true)
+        const dist = await getRealDrivingDistance(pickupLat, pickupLng, dropoffLat, dropoffLng)
+        setDistanceKm(dist)
+        setIsGeocoding(false)
+      } else {
+        setDistanceKm(0)
+      }
+    }
+    calcDistance()
+  }, [pickupLat, pickupLng, dropoffLat, dropoffLng])
+
+  const handleGeocodeBlur = async (addressText: string, type: 'PICKUP' | 'DROPOFF') => {
+    if (!addressText.trim()) return
+    setIsGeocoding(true)
+    const coords = await geocodeAddressUtil(addressText)
+    if (coords) {
+      if (type === 'PICKUP') {
+        setPickupLat(coords.lat)
+        setPickupLng(coords.lng)
+      } else {
+        setDropoffLat(coords.lat)
+        setDropoffLng(coords.lng)
+      }
+    }
+    setIsGeocoding(false)
+  }
 
   useEffect(() => {
     const fetchPrices = async () => {
@@ -55,7 +92,6 @@ export default function Package() {
     }
     fetchPrices()
     
-    // Set sender info from user session if available
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
@@ -66,14 +102,20 @@ export default function Package() {
     fetchUser()
   }, [])
 
-  // Cari harga dari admin
-  const basePriceData = packagePrices.find(p => p.description === 'BASE_PRICE')
-  const perKgPriceData = packagePrices.find(p => p.description === 'PRICE_PER_KG')
+  // Dynamic pricing configured by admin
+  const basePriceData = packagePrices.find(p => p.description === `BASE_PRICE_${packageType}`)
+  const perKgPriceData = packagePrices.find(p => p.description === `PRICE_PER_KG_${packageType}`)
   
-  const basePrice = basePriceData ? Number(basePriceData.base_price) : 15000
-  const pricePerKg = perKgPriceData ? Number(perKgPriceData.base_price) : 5000
+  const defaultBasePrice = packageType === 'DALAM_KOTA' ? 15000 : 35000
+  const defaultPricePerKg = packageType === 'DALAM_KOTA' ? 3000 : 7000
+
+  const basePrice = basePriceData ? Number(basePriceData.base_price) : defaultBasePrice
+  const pricePerKg = perKgPriceData ? Number(perKgPriceData.base_price) : defaultPricePerKg
+
+  // Radius extra price: if distance exceeds 5 km, add 2,000 per extra km
+  const radiusExtraFee = distanceKm > 5 ? Math.round(distanceKm - 5) * 2000 : 0
   
-  const totalPackagePrice = basePrice + (weightKg * pricePerKg)
+  const totalPackagePrice = basePrice + ((Number(weightKg) || 0) * pricePerKg) + radiusExtraFee
 
   const getFinalPrice = (totalBase: number) => {
     if (!promoData) return totalBase
@@ -108,8 +150,7 @@ export default function Package() {
 
       if (error || !data) throw new Error('Kode promo tidak valid atau sudah tidak aktif')
       
-      const currentBase = totalPackagePrice + 1000 // with insurance
-      if (currentBase < data.min_order_amount) {
+      if (totalPackagePrice < data.min_order_amount) {
         throw new Error(`Minimal transaksi Rp ${data.min_order_amount.toLocaleString('id-ID')} untuk promo ini`)
       }
 
@@ -120,6 +161,44 @@ export default function Package() {
     } finally {
       setPromoLoading(false)
     }
+  }
+
+  const handleNextStep1 = async () => {
+    setError('')
+    setIsGeocoding(true)
+
+    let pLat = pickupLat
+    let pLng = pickupLng
+    let dLat = dropoffLat
+    let dLng = dropoffLng
+
+    if (!pLat || !pLng) {
+      const coords = await geocodeAddressUtil(pickup)
+      if (coords) {
+        pLat = coords.lat
+        pLng = coords.lng
+        setPickupLat(coords.lat)
+        setPickupLng(coords.lng)
+      }
+    }
+
+    if (!dLat || !dLng) {
+      const coords = await geocodeAddressUtil(dropoff)
+      if (coords) {
+        dLat = coords.lat
+        dLng = coords.lng
+        setDropoffLat(coords.lat)
+        setDropoffLng(coords.lng)
+      }
+    }
+
+    if (pLat && pLng && dLat && dLng) {
+      const dist = await getRealDrivingDistance(pLat, pLng, dLat, dLng)
+      setDistanceKm(dist)
+    }
+
+    setIsGeocoding(false)
+    setStep(2)
   }
 
   const handleCheckout = async () => {
@@ -133,10 +212,8 @@ export default function Package() {
         if (!user) throw new Error('Anda belum login')
       }
 
-      const currentBase = totalPackagePrice + 1000 // with insurance
-      const totalPrice = getFinalPrice(currentBase)
+      const totalPrice = getFinalPrice(totalPackagePrice)
 
-      // Call Checkout Edge Function
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
         body: {
           paymentMethod,
@@ -148,7 +225,17 @@ export default function Package() {
             dropoff_address: dropoff,
             dropoff_lat: dropoffLat,
             dropoff_lng: dropoffLng,
-            package_details: JSON.stringify({ senderName, senderPhone, receiverName, receiverPhone, itemName, weightKg }),
+            package_details: JSON.stringify({
+              packageType,
+              senderName,
+              senderPhone,
+              receiverName,
+              receiverPhone,
+              itemName,
+              weightKg: Number(weightKg) || 0,
+              distanceKm,
+              radiusExtraFee
+            }),
             total_price: totalPrice,
             promo_id: promoData?.id || null
           }
@@ -158,7 +245,6 @@ export default function Package() {
       if (checkoutError) throw new Error(checkoutError.message || 'Gagal membuat pesanan')
       if (checkoutData?.error) throw new Error(checkoutData.error)
 
-      // Redirect to orders
       navigate('/orders')
     } catch (err: any) {
       setError(err.message || 'Terjadi kesalahan')
@@ -188,6 +274,26 @@ export default function Package() {
         {/* STEP 1: LOKASI PENGIRIMAN */}
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
+            <div>
+              <label className="mb-3 block text-sm font-bold text-gray-700">Tujuan Pengiriman</label>
+              <div className="flex rounded-lg bg-gray-200 p-1">
+                <button
+                  className={`flex-1 rounded-md py-2.5 text-sm font-bold transition flex items-center justify-center space-x-2 ${packageType === 'DALAM_KOTA' ? 'bg-white text-orange-600 shadow' : 'text-gray-600'}`}
+                  onClick={() => setPackageType('DALAM_KOTA')}
+                >
+                  <MapPin size={18} />
+                  <span>Dalam Daerah</span>
+                </button>
+                <button
+                  className={`flex-1 rounded-md py-2.5 text-sm font-bold transition flex items-center justify-center space-x-2 ${packageType === 'LUAR_KOTA' ? 'bg-white text-orange-600 shadow' : 'text-gray-600'}`}
+                  onClick={() => setPackageType('LUAR_KOTA')}
+                >
+                  <PackageIcon size={18} />
+                  <span>Luar Daerah</span>
+                </button>
+              </div>
+            </div>
+
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Lokasi Jemput & Antar</h2>
               <div className="relative space-y-5">
@@ -203,6 +309,7 @@ export default function Package() {
                         type="text"
                         value={pickup}
                         onChange={e => setPickup(e.target.value)}
+                        onBlur={() => handleGeocodeBlur(pickup, 'PICKUP')}
                         placeholder="Contoh: Jl. Sudirman No 12"
                         className="w-full font-medium text-gray-800 focus:outline-none"
                       />
@@ -223,6 +330,7 @@ export default function Package() {
                         type="text"
                         value={dropoff}
                         onChange={e => setDropoff(e.target.value)}
+                        onBlur={() => handleGeocodeBlur(dropoff, 'DROPOFF')}
                         placeholder="Contoh: Jl. Merdeka No 45"
                         className="w-full font-medium text-gray-800 focus:outline-none"
                       />
@@ -233,11 +341,14 @@ export default function Package() {
                   </div>
                 </div>
               </div>
+              <div className="mt-3 text-xs font-bold text-orange-600 bg-orange-50 p-2 rounded-lg text-right">
+                {isGeocoding ? 'Menghitung rute jalan real...' : `Jarak Rute Jalan Real: ${distanceKm > 0 ? `${distanceKm.toFixed(1)} km` : '-'}`}
+              </div>
             </div>
 
             <button
-              disabled={!pickup || !dropoff}
-              onClick={() => setStep(2)}
+              disabled={!pickup || !dropoff || isGeocoding}
+              onClick={handleNextStep1}
               className="mt-6 w-full rounded-full bg-orange-500 py-4 font-bold text-white shadow-lg shadow-orange-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
               Lanjut Isi Data Penerima
@@ -286,7 +397,7 @@ export default function Package() {
           </div>
         )}
 
-        {/* STEP 3: BERAT BARANG & HARGA */}
+        {/* STEP 3: BERAT BARANG & HARGA (INPUT ADMIN + BERAT + RADIUS) */}
         {step === 3 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-[1.5rem] bg-white p-5 shadow-sm border border-gray-100">
@@ -313,38 +424,45 @@ export default function Package() {
                       type="number"
                       min="1"
                       value={weightKg}
-                      onChange={e => setWeightKg(Number(e.target.value))}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '' || val === '0') setWeightKg('');
+                        else setWeightKg(Number(val));
+                      }}
                       className="w-full font-bold text-gray-800 focus:outline-none text-center"
+                      placeholder="Masukkan berat barang"
                     />
                     <span className="text-gray-500 font-bold">Kg</span>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-2">Harga: Dasar Rp {basePrice.toLocaleString('id-ID')} + (Rp {pricePerKg.toLocaleString('id-ID')} / Kg)</p>
+                  <p className="text-[10px] text-gray-400 mt-2">Tarif Admin: Dasar Rp {basePrice.toLocaleString('id-ID')} + (Rp {pricePerKg.toLocaleString('id-ID')} / Kg)</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-xl border border-orange-100 bg-orange-50 p-4">
-              <div className="flex flex-col space-y-2">
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>Ongkos Kirim ({weightKg} kg)</span>
-                  <span>Rp {totalPackagePrice.toLocaleString('id-ID')}</span>
+            <div className="rounded-xl border border-orange-100 bg-orange-50 p-4 space-y-2">
+              <div className="flex justify-between text-xs text-gray-600 font-medium">
+                <span>Harga Dasar ({packageType === 'DALAM_KOTA' ? 'Dalam Daerah' : 'Luar Daerah'})</span>
+                <span>Rp {basePrice.toLocaleString('id-ID')}</span>
+              </div>
+              <div className="flex justify-between text-xs text-gray-600 font-medium">
+                <span>Berat Paket ({Number(weightKg) || 0} kg x Rp {pricePerKg.toLocaleString('id-ID')})</span>
+                <span>Rp {((Number(weightKg) || 0) * pricePerKg).toLocaleString('id-ID')}</span>
+              </div>
+              {radiusExtraFee > 0 && (
+                <div className="flex justify-between text-xs text-orange-700 font-bold border-t border-orange-200 pt-1">
+                  <span>Biaya Radius Extra ({distanceKm.toFixed(1)} km rute real)</span>
+                  <span>+ Rp {radiusExtraFee.toLocaleString('id-ID')}</span>
                 </div>
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>Biaya Asuransi Dasar</span>
-                  <span>Rp 1.000</span>
-                </div>
-                <div className="border-t border-dashed border-gray-200 my-2"></div>
-                <div className="flex justify-between items-center text-lg font-bold text-gray-900">
-                  <span>Estimasi Harga</span>
-                  <div className="text-right">
-                    <span className="text-orange-500">Rp {(totalPackagePrice + 1000).toLocaleString('id-ID')}</span>
-                  </div>
-                </div>
+              )}
+              <div className="border-t border-dashed border-gray-300 my-2"></div>
+              <div className="flex justify-between items-center text-lg font-bold text-gray-900">
+                <span>Total Estimasi</span>
+                <span className="text-orange-500">Rp {totalPackagePrice.toLocaleString('id-ID')}</span>
               </div>
             </div>
 
             <button
-              disabled={!itemName}
+              disabled={!itemName || !weightKg}
               onClick={() => setStep(4)}
               className="mt-6 w-full rounded-full bg-orange-500 py-4 font-bold text-white shadow-lg shadow-orange-200 transition active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
             >
@@ -364,7 +482,7 @@ export default function Package() {
                   <PackageIcon size={20} className="text-orange-500 shrink-0" />
                   <div>
                     <h3 className="font-bold text-gray-800">{itemName}</h3>
-                    <p className="text-xs text-gray-500">Berat: {weightKg} kg</p>
+                    <p className="text-xs text-gray-500">Jenis: {packageType === 'DALAM_KOTA' ? 'Dalam Daerah' : 'Luar Daerah'} • Berat: {weightKg} kg</p>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 my-2"></div>
@@ -386,14 +504,14 @@ export default function Package() {
                 <div className="flex justify-between items-center text-lg font-bold text-gray-900">
                   <span>Total Tagihan</span>
                   <div className="text-right">
-                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {(totalPackagePrice + 1000).toLocaleString('id-ID')}</span>}
-                    <span className="text-orange-500">Rp {getFinalPrice(totalPackagePrice + 1000).toLocaleString('id-ID')}</span>
+                    {promoData && <span className="text-sm text-gray-400 line-through mr-2">Rp {totalPackagePrice.toLocaleString('id-ID')}</span>}
+                    <span className="text-orange-500">Rp {getFinalPrice(totalPackagePrice).toLocaleString('id-ID')}</span>
                   </div>
                 </div>
                 {promoData && (
                   <div className="flex justify-between items-center text-sm font-bold text-green-600 mt-1">
                     <span>Diskon Promo ({promoData.code})</span>
-                    <span>- Rp {((totalPackagePrice + 1000) - getFinalPrice(totalPackagePrice + 1000)).toLocaleString('id-ID')}</span>
+                    <span>- Rp {(totalPackagePrice - getFinalPrice(totalPackagePrice)).toLocaleString('id-ID')}</span>
                   </div>
                 )}
               </div>

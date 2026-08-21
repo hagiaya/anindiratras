@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Package, CarFront, Plane, Car, Upload, X } from 'lucide-react'
+import { playNotificationSound } from '../lib/audioNotification'
+import { ArrowLeft, Package, CarFront, Plane, Car, Upload, X, MessageCircle, Phone } from 'lucide-react'
 import imageCompression from 'browser-image-compression'
 
 export default function Orders() {
@@ -26,12 +27,42 @@ export default function Orders() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    fetchOrdersAndBalance()
+    let subscription: any = null;
+
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        fetchOrdersAndBalance(session)
+        
+        subscription = supabase
+          .channel('user_orders')
+          .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'orders',
+            filter: `user_id=eq.${session.user.id}`
+          }, (payload: any) => {
+            if ((payload.new.status === 'ASSIGNED' && payload.old.status !== 'ASSIGNED') ||
+                (payload.new.status === 'ON_THE_WAY' && payload.old.status !== 'ON_THE_WAY')) {
+              playNotificationSound()
+            }
+            fetchOrdersAndBalance(session)
+          })
+          .subscribe()
+      }
+    }
+    init()
+
+    return () => {
+      if (subscription) {
+        supabase.removeChannel(subscription)
+      }
+    }
   }, [])
 
-  const fetchOrdersAndBalance = async () => {
+  const fetchOrdersAndBalance = async (sessionParam?: any) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const session = sessionParam || (await supabase.auth.getSession()).data.session
       if (!session) return
 
       const { data, error } = await supabase
@@ -290,13 +321,38 @@ export default function Orders() {
                   </div>
                 </div>
 
-                {order.payment_status === 'UNPAID' && order.status !== 'CANCELLED' && (
+                {order.payment_method === 'CASH' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
+                  <div className="w-full rounded-xl bg-orange-100 py-3 text-center text-sm font-bold text-orange-700 mb-2">
+                    Bayar Tunai ke Sopir: Rp {order.total_price?.toLocaleString('id-ID')}
+                  </div>
+                )}
+                
+                {order.payment_method !== 'CASH' && order.payment_status === 'UNPAID' && order.status !== 'CANCELLED' && (
                   <button 
                     onClick={() => handlePayment(order)}
                     className="w-full rounded-xl bg-primary py-2 text-sm font-bold text-white transition active:scale-[0.98]"
                   >
                     Bayar Sekarang
                   </button>
+                )}
+                
+                {order.driver_id && !['COMPLETED', 'CANCELLED'].includes(order.status) && (
+                  <div className="flex space-x-2 mt-3">
+                    <button 
+                      onClick={() => navigate(`/chat/${order.id}`)}
+                      className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-blue-50 py-2.5 text-sm font-bold text-blue-600 transition active:scale-95 border border-blue-200"
+                    >
+                      <MessageCircle size={18} />
+                      <span>Chat Sopir</span>
+                    </button>
+                    <button 
+                      onClick={() => navigate(`/call/${order.id}`, { state: { isCaller: true } })}
+                      className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-green-50 py-2.5 text-sm font-bold text-green-600 transition active:scale-95 border border-green-200"
+                    >
+                      <Phone size={18} />
+                      <span>Telepon</span>
+                    </button>
+                  </div>
                 )}
                 
                 {order.status === 'COMPLETED' && order.driver_id && !userReviews.includes(order.id) && (
