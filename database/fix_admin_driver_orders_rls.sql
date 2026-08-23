@@ -57,6 +57,9 @@ DROP POLICY IF EXISTS "Admins can update bank accounts" ON public.bank_accounts;
 DROP POLICY IF EXISTS "Admins can delete bank accounts" ON public.bank_accounts;
 DROP POLICY IF EXISTS "Anyone can view bank accounts" ON public.bank_accounts;
 DROP POLICY IF EXISTS "Admins manage bank accounts" ON public.bank_accounts;
+DROP POLICY IF EXISTS "Admins insert bank accounts" ON public.bank_accounts;
+DROP POLICY IF EXISTS "Admins update bank accounts" ON public.bank_accounts;
+DROP POLICY IF EXISTS "Admins delete bank accounts" ON public.bank_accounts;
 
 CREATE POLICY "Anyone can view bank accounts" 
 ON public.bank_accounts FOR SELECT 
