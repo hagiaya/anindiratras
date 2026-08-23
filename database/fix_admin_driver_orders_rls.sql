@@ -1,7 +1,50 @@
--- SQL Migration: Comprehensive Fix for RLS Policies across All Tables (Admin, Driver, Users)
+-- SQL Migration: Comprehensive Fix for RLS Policies, Order Constraints, and User Sync across All Tables
 
--- Helper expression for Admin check:
--- EXISTS (SELECT 1 FROM public.users WHERE users.id = auth.uid() AND users.role = 'ADMIN') OR auth.role() = 'service_role' OR auth.jwt() ->> 'role' = 'ADMIN'
+-- -------------------------------------------------------------
+-- 0. FIX ORDER TYPE CHECK CONSTRAINT (Allow AIRPORT & ANTAR_BANDARA)
+-- -------------------------------------------------------------
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_order_type_check;
+
+ALTER TABLE public.orders ADD CONSTRAINT orders_order_type_check 
+CHECK (order_type IN ('CARPOOL', 'REGULAR', 'TITIP_BARANG', 'SEWA_MOBIL', 'AIRPORT', 'ANTAR_BANDARA'));
+
+-- -------------------------------------------------------------
+-- 0.1 AUTO-CREATE public.users RECORD FOR AUTH USERS IF MISSING
+-- -------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.users (id, phone, email, full_name, role, status)
+  VALUES (
+    NEW.id,
+    COALESCE(NULLIF(NEW.phone, ''), NEW.raw_user_meta_data->>'phone', '08' || floor(random()*899999999 + 100000000)::text),
+    NEW.email,
+    COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), 'Pelanggan'),
+    COALESCE(NULLIF(NEW.raw_user_meta_data->>'role', ''), 'USER'),
+    'ACTIVE'
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Ensure all existing auth users have a record in public.users
+INSERT INTO public.users (id, phone, email, full_name, role, status)
+SELECT 
+  id,
+  COALESCE(NULLIF(phone, ''), raw_user_meta_data->>'phone', '08' || floor(random()*899999999 + 100000000)::text),
+  email,
+  COALESCE(NULLIF(raw_user_meta_data->>'full_name', ''), 'Pelanggan'),
+  COALESCE(NULLIF(raw_user_meta_data->>'role', ''), 'USER'),
+  'ACTIVE'
+FROM auth.users
+ON CONFLICT (id) DO NOTHING;
 
 -- -------------------------------------------------------------
 -- 1. FIX RLS ON public.bank_accounts
