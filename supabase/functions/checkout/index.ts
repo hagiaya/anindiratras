@@ -55,7 +55,7 @@ serve(async (req) => {
       throw new Error("Missing required parameters")
     }
 
-    if (paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
+    if (paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER' && paymentMethod !== 'ANINDIRAPAY') {
       throw new Error("Invalid payment method")
     }
 
@@ -65,7 +65,7 @@ serve(async (req) => {
     }
 
     // Process Transfer (Balance Deduction)
-    if (paymentMethod === 'TRANSFER') {
+    if (paymentMethod === 'ANINDIRAPAY') {
       // 1. Check user balance
       const { data: user, error: userError } = await supabaseAdmin
         .from('users')
@@ -96,7 +96,7 @@ serve(async (req) => {
       ...orderPayload,
       user_id: userId,
       payment_method: paymentMethod,
-      payment_status: paymentMethod === 'TRANSFER' ? 'PAID' : 'PENDING',
+      payment_status: paymentMethod === 'ANINDIRAPAY' ? 'PAID' : 'UNPAID',
       status: 'PENDING'
     }
 
@@ -108,7 +108,7 @@ serve(async (req) => {
 
     if (orderError) {
       // Rollback logic (Best effort, usually we'd use a DB transaction/RPC, but this is an Edge Function)
-      if (paymentMethod === 'TRANSFER') {
+      if (paymentMethod === 'ANINDIRAPAY') {
         const { data: rollbackUser } = await supabaseAdmin.from('users').select('balance').eq('id', userId).single()
         if (rollbackUser) {
           await supabaseAdmin.from('users').update({ balance: Number(rollbackUser.balance || 0) + totalPrice }).eq('id', userId)

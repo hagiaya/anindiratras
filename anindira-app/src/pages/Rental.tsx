@@ -172,7 +172,7 @@ export default function Rental() {
         }),
         total_price: finalPrice,
         payment_method: paymentMethod,
-        payment_status: paymentMethod === 'TRANSFER' ? 'PAID' : 'PENDING',
+        payment_status: paymentMethod === 'ANINDIRAPAY' ? 'PAID' : 'UNPAID',
         status: 'PENDING',
         promo_id: promoData?.id || null
       }

@@ -291,7 +291,7 @@ export default function Carpool() {
         }),
         total_price: totalPrice,
         payment_method: paymentMethod,
-        payment_status: paymentMethod === 'TRANSFER' ? 'PAID' : 'PENDING',
+        payment_status: paymentMethod === 'ANINDIRAPAY' ? 'PAID' : 'UNPAID',
         status: 'PENDING',
         promo_id: promoData?.id || null
       }
