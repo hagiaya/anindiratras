@@ -17,7 +17,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData()
 
-    // Realtime listener for new incoming orders
+    // Realtime listener for new incoming orders (postgres_changes + broadcast)
     const subscription = supabase
       .channel('admin_orders_channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
@@ -25,6 +25,10 @@ export default function Dashboard() {
         fetchOrders()
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+        fetchOrders()
+      })
+      .on('broadcast', { event: 'new_order' }, () => {
+        if (soundEnabled) playNotificationSound()
         fetchOrders()
       })
       .subscribe()
@@ -41,14 +45,40 @@ export default function Dashboard() {
   }
 
   const fetchOrders = async () => {
-    const { data } = await supabase.from('orders').select('*, users(phone, full_name)').order('created_at', { ascending: false })
-    if (data) {
-      const currentCount = data.length
-      if (prevOrderCountRef.current > 0 && currentCount > prevOrderCountRef.current && soundEnabled) {
-        playNotificationSound()
+    try {
+      const { data, error } = await supabase.from('orders').select('*, users(phone, full_name)').order('created_at', { ascending: false })
+      
+      let finalOrders = data || []
+
+      if (error || !data) {
+        console.warn('Primary fetchOrders joined query notice:', error?.message)
+        const { data: plainData } = await supabase.from('orders').select('*').order('created_at', { ascending: false })
+        if (plainData && plainData.length > 0) {
+          // Hydrate user info manually if join failed
+          const userIds = Array.from(new Set(plainData.map(o => o.user_id).filter(Boolean)))
+          if (userIds.length > 0) {
+            const { data: usersData } = await supabase.from('users').select('id, phone, full_name').in('id', userIds)
+            const userMap = new Map((usersData || []).map(u => [u.id, u]))
+            finalOrders = plainData.map(o => ({
+              ...o,
+              users: userMap.get(o.user_id) || null
+            }))
+          } else {
+            finalOrders = plainData
+          }
+        }
       }
-      prevOrderCountRef.current = currentCount
-      setOrders(data)
+
+      if (finalOrders) {
+        const currentCount = finalOrders.length
+        if (prevOrderCountRef.current > 0 && currentCount > prevOrderCountRef.current && soundEnabled) {
+          playNotificationSound()
+        }
+        prevOrderCountRef.current = currentCount
+        setOrders(finalOrders)
+      }
+    } catch (e) {
+      console.error('Error fetching orders in Admin Dashboard:', e)
     }
   }
 
@@ -84,6 +114,16 @@ export default function Dashboard() {
       if (error) throw error
       
       setOrders(orders.map(o => o.id === orderId ? { ...o, driver_id: driverId, status: 'ASSIGNED' } : o))
+
+      // Broadcast notification to driver
+      try {
+        await supabase.channel(`driver_channel_${driverId}`).send({
+          type: 'broadcast',
+          event: 'order_assigned',
+          payload: { orderId }
+        })
+      } catch (_e) {}
+
       if (soundEnabled) playNotificationSound()
       alert('Sopir berhasil ditugaskan untuk pesanan ini!')
     } catch (err: any) {

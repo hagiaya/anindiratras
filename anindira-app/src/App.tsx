@@ -27,6 +27,47 @@ import { supabase } from './lib/supabase'
 import { initializePushNotifications } from './lib/pushNotifications'
 import { LayoutDashboard, Users as UsersIcon, Settings, Bell, LogOut, Menu, X, CreditCard, Tag, Store } from 'lucide-react'
 import IncomingCallAlert from './components/IncomingCallAlert'
+import { CapacitorUpdater } from '@capgo/capacitor-updater'
+import { Capacitor } from '@capacitor/core'
+import { App as CapApp } from '@capacitor/app'
+
+const checkForOtaUpdates = async () => {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    await CapacitorUpdater.notifyAppReady()
+
+    const current = await CapacitorUpdater.current()
+
+    const { data, error } = await supabase
+      .from('app_versions')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error || !data || !data.zip_url) return
+
+    // If current bundle version is already active, skip download and set to prevent reload loops
+    if (
+      current?.bundle?.version === data.version_code ||
+      current?.bundle?.id === data.version_code
+    ) {
+      return
+    }
+
+    const versionInfo = await CapacitorUpdater.download({
+      url: data.zip_url,
+      version: data.version_code,
+    })
+
+    if (versionInfo && versionInfo.id !== current?.bundle?.id) {
+      await CapacitorUpdater.set({ id: versionInfo.id })
+    }
+  } catch (err) {
+    console.warn('OTA update check warning:', err)
+  }
+}
 
 // Layout for Admin
 function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -169,6 +210,21 @@ function PrivateRoute({ children, requiredRole }: { children: React.ReactNode, r
 
 function App() {
   useEffect(() => {
+    // Check for OTA updates on native platform on launch
+    checkForOtaUpdates();
+
+    // Handle native hardware back button on Android
+    let backListener: any = null
+    if (Capacitor.isNativePlatform()) {
+      backListener = CapApp.addListener('backButton', () => {
+        const path = window.location.pathname
+        if (path === '/' || path === '/login') {
+          CapApp.minimizeApp()
+        } else {
+          window.history.back()
+        }
+      })
+    }
 
     // Listen for auth state changes to initialize push notifications with valid session
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -185,6 +241,9 @@ function App() {
     });
 
     return () => {
+      if (backListener) {
+        backListener.then((h: any) => h?.remove?.())
+      }
       authListener.subscription.unsubscribe();
     };
   }, []);

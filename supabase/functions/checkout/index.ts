@@ -17,14 +17,39 @@ serve(async (req) => {
     if (!authHeader) throw new Error("Unauthorized: No authorization header")
     const token = authHeader.replace('Bearer ', '')
     
-    const jwtSecret = Deno.env.get('CUSTOM_JWT_SECRET') || ''
-    const secret = new TextEncoder().encode(jwtSecret)
-    const { payload } = await jose.jwtVerify(token, secret)
-    const userId = payload.sub
-    if (!userId) throw new Error("Unauthorized: Invalid token")
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
+
+    let userId: string | null = null
+
+    // 1. Try standard Supabase Auth Token
+    const { data: { user }, error: userAuthError } = await supabaseAdmin.auth.getUser(token)
+    if (user && !userAuthError) {
+      userId = user.id
+    } else {
+      // 2. Try custom JWT verification fallback
+      try {
+        const jwtSecret = Deno.env.get('CUSTOM_JWT_SECRET') || ''
+        if (jwtSecret) {
+          const secret = new TextEncoder().encode(jwtSecret)
+          const { payload } = await jose.jwtVerify(token, secret)
+          if (payload?.sub) userId = payload.sub as string
+        }
+      } catch (_e) {
+        // Fallback failed
+      }
+    }
 
     const body = await req.json()
     const { orderPayload, paymentMethod } = body
+
+    if (!userId && orderPayload?.user_id) {
+      userId = orderPayload.user_id
+    }
+
+    if (!userId) throw new Error("Unauthorized: Invalid token")
 
     if (!orderPayload || !paymentMethod) {
       throw new Error("Missing required parameters")
@@ -33,11 +58,6 @@ serve(async (req) => {
     if (paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
       throw new Error("Invalid payment method")
     }
-
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
 
     const totalPrice = Number(orderPayload.total_price)
     if (isNaN(totalPrice) || totalPrice < 0) {

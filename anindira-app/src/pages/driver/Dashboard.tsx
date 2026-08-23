@@ -45,6 +45,7 @@ export default function DriverDashboard() {
 
   useEffect(() => {
     let subscription: any = null;
+    let broadcastSubscription: any = null;
 
     const init = async () => {
       const sessionData = await checkSessionAndFetchData()
@@ -64,14 +65,21 @@ export default function DriverDashboard() {
             fetchOrders(sessionData.user.id)
           })
           .subscribe()
+
+        broadcastSubscription = supabase
+          .channel(`driver_channel_${sessionData.user.id}`)
+          .on('broadcast', { event: 'order_assigned' }, () => {
+            playNotificationSound()
+            fetchOrders(sessionData.user.id)
+          })
+          .subscribe()
       }
     }
     init()
 
     return () => {
-      if (subscription) {
-        supabase.removeChannel(subscription)
-      }
+      if (subscription) supabase.removeChannel(subscription)
+      if (broadcastSubscription) supabase.removeChannel(broadcastSubscription)
     }
   }, [])
 
@@ -136,6 +144,28 @@ export default function DriverDashboard() {
 
     if (data && !error) {
       setOrders(data)
+    } else {
+      console.warn('Driver fetchOrders join notice:', error?.message)
+      const { data: plainOrders } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('driver_id', driverId)
+        .in('status', ['ASSIGNED', 'ON_THE_WAY'])
+        .order('created_at', { ascending: true })
+
+      if (plainOrders) {
+        const userIds = Array.from(new Set(plainOrders.map(o => o.user_id).filter(Boolean)))
+        if (userIds.length > 0) {
+          const { data: usersData } = await supabase.from('users').select('id, phone').in('id', userIds)
+          const userMap = new Map((usersData || []).map(u => [u.id, u]))
+          setOrders(plainOrders.map(o => ({
+            ...o,
+            users: userMap.get(o.user_id) || { phone: 'Pelanggan' }
+          })))
+        } else {
+          setOrders(plainOrders)
+        }
+      }
     }
 
     const { data: historyData } = await supabase

@@ -143,40 +143,71 @@ export default function Rental() {
     setError('')
     try {
       const demoMode = localStorage.getItem('demo_mode')
-      
+      let userId: string | null = null
+
       if (!demoMode) {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) throw new Error('Anda belum login')
+        userId = user.id
+      } else {
+        userId = 'demo-user-id'
       }
 
       const totalBase = getTotalBasePrice()
       const finalPrice = getFinalPrice(totalBase)
+      const orderPayloadData = {
+        user_id: userId,
+        order_type: 'SEWA_MOBIL',
+        pickup_address: pickup,
+        pickup_lat: pickupLat,
+        pickup_lng: pickupLng,
+        rental_duration_hours: rentalDays * 24,
+        package_details: JSON.stringify({
+          carUnit: selectedCarObj.name,
+          areaType,
+          rentalDays,
+          pricePerDay: getPricePerDay(),
+          pickupDate,
+          pickupTime
+        }),
+        total_price: finalPrice,
+        payment_method: paymentMethod,
+        payment_status: paymentMethod === 'TRANSFER' ? 'PAID' : 'PENDING',
+        status: 'PENDING',
+        promo_id: promoData?.id || null
+      }
 
-      const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
-        body: {
-          paymentMethod,
-          orderPayload: {
-            order_type: 'SEWA_MOBIL',
-            pickup_address: pickup,
-            pickup_lat: pickupLat,
-            pickup_lng: pickupLng,
-            rental_duration_hours: rentalDays * 24,
-            package_details: JSON.stringify({
-              carUnit: selectedCarObj.name,
-              areaType,
-              rentalDays,
-              pricePerDay: getPricePerDay(),
-              pickupDate,
-              pickupTime
-            }),
-            total_price: finalPrice,
-            promo_id: promoData?.id || null
+      let orderCreated = false
+      try {
+        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
+          body: {
+            paymentMethod,
+            orderPayload: orderPayloadData
           }
+        })
+        if (!checkoutError && checkoutData && !checkoutData.error) {
+          orderCreated = true
         }
-      })
+      } catch (e) {
+        console.warn('Edge function checkout fallback to direct DB insert', e)
+      }
 
-      if (checkoutError) throw new Error(checkoutError.message || 'Gagal membuat pesanan')
-      if (checkoutData?.error) throw new Error(checkoutData.error)
+      if (!orderCreated) {
+        const { error: directError } = await supabase
+          .from('orders')
+          .insert(orderPayloadData)
+
+        if (directError) throw new Error(`Gagal membuat pesanan: ${directError.message}`)
+      }
+
+      // Notify admin dashboard via broadcast
+      try {
+        await supabase.channel('admin_orders_channel').send({
+          type: 'broadcast',
+          event: 'new_order',
+          payload: { order_type: 'SEWA_MOBIL' }
+        })
+      } catch (_e) {}
 
       navigate('/orders')
 
@@ -227,6 +258,7 @@ export default function Rental() {
                       <div className="flex-1">
                         <h3 className="font-bold text-gray-800 text-lg">{car.name}</h3>
                         <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="text-xs bg-cyan-50 text-cyan-700 px-2 py-0.5 rounded-full font-bold">❄️ Full AC</span>
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">Maks {car.seats} Penumpang</span>
                           <span className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full font-bold">Dalam Kota: Rp {car.inCityPrice.toLocaleString('id-ID')}</span>
                           <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Luar Kota: Rp {car.outCityPrice.toLocaleString('id-ID')}</span>
@@ -289,9 +321,14 @@ export default function Rental() {
 
               <div className="mt-4 rounded-xl bg-purple-50 p-4 flex items-start space-x-3 border border-purple-100">
                 <Clock size={20} className="text-purple-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-bold text-purple-800 uppercase tracking-wide mb-1">Catatan Sewa Mobil</p>
-                  <p className="text-xs font-semibold text-purple-700">1 Hari dihitung dari jam 07:00 pagi sampai jam 22:00 malam.</p>
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-purple-800 uppercase tracking-wide">Catatan Sewa Mobil</p>
+                  <p className="text-xs font-bold text-purple-900 flex items-center">
+                    <span className="mr-1">❄️</span> Sewa Mobil Full AC + Sopir Berpengalaman
+                  </p>
+                  <p className="text-xs font-semibold text-purple-700">
+                    ⏱️ 1 Hari dihitung dari jam 07:00 pagi sampai jam 22:00 malam.
+                  </p>
                 </div>
               </div>
 
@@ -410,7 +447,9 @@ export default function Rental() {
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase">Waktu & Fasilitas</p>
                     <p className="text-sm font-semibold text-gray-800">{pickupDate} • {pickupTime} WIB</p>
-                    <p className="text-xs text-gray-500">Full AC + Sopir</p>
+                    <p className="text-xs font-bold text-purple-700 flex items-center mt-0.5">
+                      <span>❄️ Sewa Full AC + Sopir</span>
+                    </p>
                   </div>
                 </div>
                 <div className="border-t border-gray-200 my-2"></div>

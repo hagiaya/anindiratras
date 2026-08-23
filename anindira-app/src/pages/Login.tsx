@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { CarFront, Package, Plane, ChevronLeft, HelpCircle } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
+import { App as CapApp } from '@capacitor/app'
 
 export default function Login() {
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN')
@@ -27,6 +29,7 @@ export default function Login() {
   const navigate = useNavigate()
   
   const otpInputRef = useRef<HTMLInputElement>(null)
+  const verifyingRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -42,6 +45,32 @@ export default function Login() {
       }
     })
   }, [navigate])
+
+  // Handle native Android physical back button in Login flow
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+
+    const listener = CapApp.addListener('backButton', () => {
+      setStep((currentStep) => {
+        if (currentStep === 'PHONE' || currentStep === 'REGISTER_FORM') {
+          return 'LANDING'
+        } else if (currentStep === 'METHOD') {
+          return mode === 'REGISTER' ? 'REGISTER_FORM' : 'PHONE'
+        } else if (currentStep === 'OTP') {
+          return 'METHOD'
+        } else if (currentStep === 'SUCCESS') {
+          return 'LANDING'
+        } else {
+          CapApp.minimizeApp()
+          return 'LANDING'
+        }
+      })
+    })
+
+    return () => {
+      listener.then(h => h.remove())
+    }
+  }, [mode])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
@@ -84,7 +113,8 @@ export default function Login() {
 
   const handleVerifyOTP = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    if (otp.length < 6) return
+    if (otp.length < 6 || loading || verifyingRef.current) return
+    verifyingRef.current = true
     setLoading(true)
     setError('')
     try {
@@ -149,12 +179,13 @@ export default function Login() {
       setError(err.message)
     } finally {
       setLoading(false)
+      verifyingRef.current = false
     }
   }
 
   // Auto-submit OTP when 6 digits are entered
   useEffect(() => {
-    if (otp.length === 6) {
+    if (otp.length === 6 && !loading && !verifyingRef.current) {
       handleVerifyOTP()
     }
   }, [otp])

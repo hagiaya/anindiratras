@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Map, RefreshCw, Landmark, QrCode, Upload, Settings as SettingsIcon, Clock, TrendingUp, AlertTriangle, Car, Package as PackageIcon, Plane } from 'lucide-react'
+import { Plus, Trash2, Map, RefreshCw, Landmark, QrCode, Upload, Settings as SettingsIcon, Clock, TrendingUp, AlertTriangle, Car, Package as PackageIcon, Plane, Edit2, CarFront } from 'lucide-react'
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'DEPARTURES' | 'RENTAL' | 'PACKAGE' | 'AIRPORT' | 'ROUTES' | 'BANKS' | 'QRIS'>('GLOBAL')
+  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'DEPARTURES' | 'CARPOOL' | 'RENTAL' | 'PACKAGE' | 'AIRPORT' | 'ROUTES' | 'BANKS' | 'QRIS'>('GLOBAL')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -17,6 +17,15 @@ export default function Settings() {
   const [departureTimes, setDepartureTimes] = useState<any[]>([])
   const [newDepartureTime, setNewDepartureTime] = useState('')
   const [newDepartureRouteType, setNewDepartureRouteType] = useState<'DALAM_KOTA' | 'LUAR_KOTA'>('DALAM_KOTA')
+  const [editingDeptId, setEditingDeptId] = useState<string | null>(null)
+  const [editDeptTime, setEditDeptTime] = useState('')
+  const [editDeptRouteType, setEditDeptRouteType] = useState<'DALAM_KOTA' | 'LUAR_KOTA'>('DALAM_KOTA')
+
+  // Carpool Pricing State
+  const [selectedCarpoolRouteId, setSelectedCarpoolRouteId] = useState('')
+  const [carpoolFrontPrice, setCarpoolFrontPrice] = useState<number | string>(60000)
+  const [carpoolMidPrice, setCarpoolMidPrice] = useState<number | string>(50000)
+  const [carpoolBackPrice, setCarpoolBackPrice] = useState<number | string>(50000)
 
   // Extra Prices (Jarak Jauh)
   const [extraPrices, setExtraPrices] = useState<any[]>([])
@@ -194,6 +203,8 @@ export default function Settings() {
     e.preventDefault()
     if (!newDepartureTime) return
     setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
     const { error } = await supabase.from('departure_times').insert({
       time_string: newDepartureTime,
       route_type: newDepartureRouteType
@@ -204,15 +215,103 @@ export default function Settings() {
       setSuccessMsg('Jam keberangkatan berhasil ditambahkan!')
       fetchData()
     } else {
-      setError(error.message)
+      setError('Gagal menambah jam: ' + error.message)
+    }
+  }
+
+  const handleStartEditDepartureTime = (dt: any) => {
+    setEditingDeptId(dt.id)
+    setEditDeptTime(dt.time_string)
+    setEditDeptRouteType(dt.route_type || 'DALAM_KOTA')
+  }
+
+  const handleUpdateDepartureTime = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingDeptId || !editDeptTime) return
+    setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
+    const { error } = await supabase.from('departure_times').update({
+      time_string: editDeptTime,
+      route_type: editDeptRouteType
+    }).eq('id', editingDeptId)
+
+    setIsRefreshing(false)
+    if (!error) {
+      setEditingDeptId(null)
+      setSuccessMsg('Jam keberangkatan berhasil diperbarui!')
+      fetchData()
+    } else {
+      setError('Gagal memperbarui jam: ' + error.message)
     }
   }
 
   const handleDeleteDepartureTime = async (id: string) => {
+    if (!confirm('Hapus jam keberangkatan ini?')) return
     setIsRefreshing(true)
-    await supabase.from('departure_times').delete().eq('id', id)
+    setError('')
+    setSuccessMsg('')
+    const { error } = await supabase.from('departure_times').delete().eq('id', id)
     setIsRefreshing(false)
-    fetchData()
+    if (!error) {
+      setSuccessMsg('Jam keberangkatan berhasil dihapus!')
+      fetchData()
+    } else {
+      setError('Gagal menghapus jam: ' + error.message)
+    }
+  }
+
+  // --- CARPOOL PRICING LOGIC ---
+  const handleSaveCarpoolPrices = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedCarpoolRouteId) return setError('Pilih rute terlebih dahulu')
+    setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
+
+    try {
+      const seatConfigs = [
+        { seat_type: 'FRONT', price: Number(carpoolFrontPrice) },
+        { seat_type: 'MID', price: Number(carpoolMidPrice) },
+        { seat_type: 'BACK', price: Number(carpoolBackPrice) }
+      ]
+
+      for (const config of seatConfigs) {
+        const existing = prices.find(p => p.product_type === 'CARPOOL' && p.route_id === selectedCarpoolRouteId && p.seat_type === config.seat_type)
+        if (existing) {
+          await supabase.from('product_prices').update({ base_price: config.price }).eq('id', existing.id)
+        } else {
+          await supabase.from('product_prices').insert({
+            product_type: 'CARPOOL',
+            route_id: selectedCarpoolRouteId,
+            seat_type: config.seat_type,
+            base_price: config.price
+          })
+        }
+      }
+
+      setSuccessMsg('Tarif travel reguler (carpooling) berhasil disimpan!')
+      fetchData()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const handleDeleteCarpoolPrices = async (routeId: string) => {
+    if (!confirm('Hapus pengaturan harga travel reguler untuk rute ini?')) return
+    setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
+    const { error } = await supabase.from('product_prices').delete().eq('product_type', 'CARPOOL').eq('route_id', routeId)
+    setIsRefreshing(false)
+    if (!error) {
+      setSuccessMsg('Harga travel reguler berhasil dihapus!')
+      fetchData()
+    } else {
+      setError(error.message)
+    }
   }
 
   // --- SEWA MOBIL LOGIC ---
@@ -446,12 +545,27 @@ export default function Settings() {
   const dalamKotaDepartureTimes = departureTimes.filter(d => !d.route_type || d.route_type === 'DALAM_KOTA')
   const luarKotaDepartureTimes = departureTimes.filter(d => d.route_type === 'LUAR_KOTA')
 
+  // Group Carpool Prices by Route
+  const carpoolPricesByRoute = routes.map(r => {
+    const routePrices = prices.filter(p => p.product_type === 'CARPOOL' && p.route_id === r.id)
+    const front = routePrices.find(p => p.seat_type === 'FRONT')?.base_price || 0
+    const mid = routePrices.find(p => p.seat_type === 'MID')?.base_price || 0
+    const back = routePrices.find(p => p.seat_type === 'BACK')?.base_price || 0
+    return {
+      route: r,
+      frontPrice: Number(front),
+      midPrice: Number(mid),
+      backPrice: Number(back),
+      hasPrices: routePrices.length > 0
+    }
+  })
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Pengaturan Sistem Admin</h1>
-          <p className="text-sm text-gray-500 mt-1">Kelola Jam Pemberangkatan, Sewa Mobil, Kiriman Barang, Bandara, Rute, & Pembayaran</p>
+          <p className="text-sm text-gray-500 mt-1">Kelola Jam Pemberangkatan, Harga Travel Reguler, Sewa Mobil, Kiriman Barang, Bandara, Rute, & Pembayaran</p>
         </div>
         <button 
           onClick={fetchData}
@@ -480,6 +594,13 @@ export default function Settings() {
         >
           <Clock size={18} />
           <span>Jam Keberangkatan</span>
+        </button>
+        <button
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'CARPOOL' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('CARPOOL')}
+        >
+          <CarFront size={18} />
+          <span>Harga Travel Reguler</span>
         </button>
         <button
           className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'RENTAL' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
@@ -521,7 +642,6 @@ export default function Settings() {
           onClick={() => setActiveTab('QRIS')}
         >
           <QrCode size={18} />
-          <span>QRIS</span>
         </button>
       </div>
 
@@ -619,7 +739,20 @@ export default function Settings() {
                 {dalamKotaDepartureTimes.map(dt => (
                   <div key={dt.id} className="flex items-center bg-blue-50 border border-blue-200 rounded-xl pl-3 pr-1 py-2">
                     <span className="text-sm font-black text-blue-900 mr-2">{dt.time_string.replace(':', '.')} WIB</span>
-                    <button onClick={() => handleDeleteDepartureTime(dt.id)} className="bg-white p-1 rounded-lg text-red-500 hover:bg-red-50 shadow-sm"><Trash2 size={14}/></button>
+                    <button 
+                      onClick={() => handleStartEditDepartureTime(dt)} 
+                      className="bg-white p-1 rounded-lg text-blue-600 hover:bg-blue-100 shadow-sm mr-1"
+                      title="Edit Jam"
+                    >
+                      <Edit2 size={14}/>
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteDepartureTime(dt.id)} 
+                      className="bg-white p-1 rounded-lg text-red-500 hover:bg-red-50 shadow-sm"
+                      title="Hapus Jam"
+                    >
+                      <Trash2 size={14}/>
+                    </button>
                   </div>
                 ))}
                 {dalamKotaDepartureTimes.length === 0 && <p className="text-sm text-gray-400">Belum ada jam keberangkatan.</p>}
@@ -639,11 +772,220 @@ export default function Settings() {
                 {luarKotaDepartureTimes.map(dt => (
                   <div key={dt.id} className="flex items-center bg-orange-50 border border-orange-200 rounded-xl pl-3 pr-1 py-2">
                     <span className="text-sm font-black text-orange-900 mr-2">{dt.time_string.replace(':', '.')} WIB</span>
-                    <button onClick={() => handleDeleteDepartureTime(dt.id)} className="bg-white p-1 rounded-lg text-red-500 hover:bg-red-50 shadow-sm"><Trash2 size={14}/></button>
+                    <button 
+                      onClick={() => handleStartEditDepartureTime(dt)} 
+                      className="bg-white p-1 rounded-lg text-orange-600 hover:bg-orange-100 shadow-sm mr-1"
+                      title="Edit Jam"
+                    >
+                      <Edit2 size={14}/>
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteDepartureTime(dt.id)} 
+                      className="bg-white p-1 rounded-lg text-red-500 hover:bg-red-50 shadow-sm"
+                      title="Hapus Jam"
+                    >
+                      <Trash2 size={14}/>
+                    </button>
                   </div>
                 ))}
                 {luarKotaDepartureTimes.length === 0 && <p className="text-sm text-gray-400">Belum ada jam keberangkatan.</p>}
               </div>
+            </div>
+          </div>
+
+          {/* Modal Edit Jam Keberangkatan */}
+          {editingDeptId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md space-y-4">
+                <h3 className="text-lg font-bold text-gray-800">Edit Jam Keberangkatan</h3>
+                <form onSubmit={handleUpdateDepartureTime} className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase">Jam Pemberangkatan</label>
+                    <input 
+                      type="time" 
+                      value={editDeptTime} 
+                      onChange={e => setEditDeptTime(e.target.value)} 
+                      className="w-full border border-gray-300 rounded-xl p-3 text-sm font-bold focus:border-primary outline-none mt-1" 
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase">Kategori Rute</label>
+                    <select 
+                      value={editDeptRouteType} 
+                      onChange={e => setEditDeptRouteType(e.target.value as any)} 
+                      className="w-full border border-gray-300 rounded-xl p-3 text-sm font-bold focus:border-primary outline-none mt-1 bg-white"
+                    >
+                      <option value="DALAM_KOTA">Rute Dalam Daerah (7x)</option>
+                      <option value="LUAR_KOTA">Rute Luar Daerah (4x)</option>
+                    </select>
+                  </div>
+                  <div className="flex space-x-2 pt-2">
+                    <button 
+                      type="button" 
+                      onClick={() => setEditingDeptId(null)} 
+                      className="flex-1 bg-gray-100 text-gray-700 font-bold py-2.5 rounded-xl hover:bg-gray-200 transition"
+                    >
+                      Batal
+                    </button>
+                    <button 
+                      type="submit" 
+                      className="flex-1 bg-primary text-white font-bold py-2.5 rounded-xl hover:bg-blue-600 transition"
+                    >
+                      Simpan Perubahan
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: HARGA TRAVEL REGULER (CARPOOLING) */}
+      {activeTab === 'CARPOOL' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+              <CarFront size={20} className="mr-2 text-primary"/> Atur Harga Travel Reguler
+            </h2>
+            <form onSubmit={handleSaveCarpoolPrices} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Pilih Rute Perjalanan</label>
+                <select 
+                  required
+                  value={selectedCarpoolRouteId} 
+                  onChange={e => {
+                    const rId = e.target.value
+                    setSelectedCarpoolRouteId(rId)
+                    const pObj = carpoolPricesByRoute.find(p => p.route.id === rId)
+                    if (pObj && pObj.hasPrices) {
+                      setCarpoolFrontPrice(pObj.frontPrice)
+                      setCarpoolMidPrice(pObj.midPrice)
+                      setCarpoolBackPrice(pObj.backPrice)
+                    }
+                  }}
+                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold bg-white"
+                >
+                  <option value="" disabled>-- Pilih Rute --</option>
+                  {routes.map(r => (
+                    <option key={r.id} value={r.id}>{r.name} ({r.route_type === 'DALAM_KOTA' ? 'Dalam Daerah' : 'Luar Daerah'})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi Depan (FRONT)</label>
+                <input 
+                  required 
+                  type="number" 
+                  value={carpoolFrontPrice} 
+                  onChange={e => setCarpoolFrontPrice(e.target.value)} 
+                  placeholder="Contoh: 60000" 
+                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi Tengah (MID)</label>
+                <input 
+                  required 
+                  type="number" 
+                  value={carpoolMidPrice} 
+                  onChange={e => setCarpoolMidPrice(e.target.value)} 
+                  placeholder="Contoh: 50000" 
+                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi Belakang (BACK)</label>
+                <input 
+                  required 
+                  type="number" 
+                  value={carpoolBackPrice} 
+                  onChange={e => setCarpoolBackPrice(e.target.value)} 
+                  placeholder="Contoh: 50000" 
+                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
+                />
+              </div>
+
+              <button 
+                disabled={isRefreshing || !selectedCarpoolRouteId} 
+                type="submit" 
+                className="w-full bg-gray-900 text-white font-bold rounded-xl py-3 hover:bg-black transition active:scale-95 disabled:opacity-50"
+              >
+                Simpan Tarif Reguler
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-800">Daftar Tarif Travel Reguler per Rute</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Nama Rute</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Tipe Rute</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Depan</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Tengah</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Belakang</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold uppercase text-gray-500">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {carpoolPricesByRoute.map(item => (
+                    <tr key={item.route.id}>
+                      <td className="px-6 py-4 font-bold text-gray-900">{item.route.name}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${item.route.route_type === 'DALAM_KOTA' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {item.route.route_type?.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-bold text-sm text-green-600">
+                        {item.frontPrice > 0 ? `Rp ${item.frontPrice.toLocaleString('id-ID')}` : '-'}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-sm text-blue-600">
+                        {item.midPrice > 0 ? `Rp ${item.midPrice.toLocaleString('id-ID')}` : '-'}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-sm text-purple-600">
+                        {item.backPrice > 0 ? `Rp ${item.backPrice.toLocaleString('id-ID')}` : '-'}
+                      </td>
+                      <td className="px-6 py-4 text-right space-x-1">
+                        <button 
+                          onClick={() => {
+                            setSelectedCarpoolRouteId(item.route.id)
+                            setCarpoolFrontPrice(item.frontPrice)
+                            setCarpoolMidPrice(item.midPrice)
+                            setCarpoolBackPrice(item.backPrice)
+                          }} 
+                          className="text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition"
+                          title="Set / Edit Tarif"
+                        >
+                          <Edit2 size={16}/>
+                        </button>
+                        {item.hasPrices && (
+                          <button 
+                            onClick={() => handleDeleteCarpoolPrices(item.route.id)} 
+                            className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition"
+                            title="Hapus Tarif"
+                          >
+                            <Trash2 size={16}/>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {carpoolPricesByRoute.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-gray-400 font-medium">Belum ada rute travel reguler. Tambahkan rute di tab Manajemen Rute terlebih dahulu.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

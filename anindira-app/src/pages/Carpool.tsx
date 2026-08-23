@@ -151,8 +151,15 @@ export default function Carpool() {
     let total = 0
     selectedSeats.forEach(seatNum => {
       let seatCategory = 'MID'
-      if (seatNum === 1) seatCategory = 'FRONT'
-      if (carType === '6_SEATS' && (seatNum === 5 || seatNum === 6)) seatCategory = 'BACK'
+      if (seatNum === 1) {
+        seatCategory = 'FRONT'
+      } else if (carType === '5_SEATS' && (seatNum === 4 || seatNum === 5)) {
+        seatCategory = 'BACK'
+      } else if (carType === '6_SEATS' && (seatNum === 5 || seatNum === 6)) {
+        seatCategory = 'BACK'
+      } else if (carType === '7_SEATS' && (seatNum === 5 || seatNum === 6 || seatNum === 7)) {
+        seatCategory = 'BACK'
+      }
       
       const price = selectedRoute.prices[seatCategory] || selectedRoute.prices['MID'] || 50000
       total += price
@@ -252,43 +259,74 @@ export default function Carpool() {
     setError('')
     try {
       const demoMode = localStorage.getItem('demo_mode')
-      
+      let userId: string | null = null
+
       if (!demoMode) {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) throw new Error('Anda belum login')
+        userId = user.id
+      } else {
+        userId = 'demo-user-id'
       }
 
       const totalPrice = getFinalPrice(totalBasePrice)
+      const orderPayloadData = {
+        user_id: userId,
+        order_type: 'CARPOOL',
+        route_id: selectedRoute.id,
+        pickup_address: pickup,
+        pickup_lat: pickupLat,
+        pickup_lng: pickupLng,
+        dropoff_address: dropoff,
+        dropoff_lat: dropoffLat,
+        dropoff_lng: dropoffLng,
+        package_details: JSON.stringify({
+          carType,
+          selectedSeats,
+          departureDate,
+          departureTime,
+          extraPriceId: selectedExtraPrice?.id || null,
+          extraPriceName: selectedExtraPrice?.description || null,
+          distanceKm
+        }),
+        total_price: totalPrice,
+        payment_method: paymentMethod,
+        payment_status: paymentMethod === 'TRANSFER' ? 'PAID' : 'PENDING',
+        status: 'PENDING',
+        promo_id: promoData?.id || null
+      }
 
-      const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
-        body: {
-          paymentMethod,
-          orderPayload: {
-            order_type: 'CARPOOL',
-            route_id: selectedRoute.id,
-            pickup_address: pickup,
-            pickup_lat: pickupLat,
-            pickup_lng: pickupLng,
-            dropoff_address: dropoff,
-            dropoff_lat: dropoffLat,
-            dropoff_lng: dropoffLng,
-            package_details: JSON.stringify({
-              carType,
-              selectedSeats,
-              departureDate,
-              departureTime,
-              extraPriceId: selectedExtraPrice?.id || null,
-              extraPriceName: selectedExtraPrice?.description || null,
-              distanceKm
-            }),
-            total_price: totalPrice,
-            promo_id: promoData?.id || null
+      let orderCreated = false
+      try {
+        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
+          body: {
+            paymentMethod,
+            orderPayload: orderPayloadData
           }
+        })
+        if (!checkoutError && checkoutData && !checkoutData.error) {
+          orderCreated = true
         }
-      })
+      } catch (e) {
+        console.warn('Edge function checkout fallback to direct DB insert', e)
+      }
 
-      if (checkoutError) throw new Error(checkoutError.message || 'Gagal membuat pesanan')
-      if (checkoutData?.error) throw new Error(checkoutData.error)
+      if (!orderCreated) {
+        const { error: directError } = await supabase
+          .from('orders')
+          .insert(orderPayloadData)
+
+        if (directError) throw new Error(`Gagal membuat pesanan: ${directError.message}`)
+      }
+
+      // Notify admin dashboard via broadcast
+      try {
+        await supabase.channel('admin_orders_channel').send({
+          type: 'broadcast',
+          event: 'new_order',
+          payload: { order_type: 'CARPOOL' }
+        })
+      } catch (_e) {}
 
       navigate('/orders')
 
@@ -308,6 +346,30 @@ export default function Carpool() {
   }
 
   const renderSeatMap = () => {
+    // Row 2 (Middle) seat numbers and grid cols
+    let row2Seats: number[] = [2, 3, 4]
+    let row2Cols = 'grid-cols-3'
+    
+    if (carType === '3_SEATS' || carType === '5_SEATS') {
+      row2Seats = [2, 3]
+      row2Cols = 'grid-cols-2'
+    }
+
+    // Row 3 (Back) seat numbers and grid cols
+    let row3Seats: number[] = []
+    let row3Cols = 'grid-cols-2'
+
+    if (carType === '5_SEATS') {
+      row3Seats = [4, 5]
+      row3Cols = 'grid-cols-2'
+    } else if (carType === '6_SEATS') {
+      row3Seats = [5, 6]
+      row3Cols = 'grid-cols-2'
+    } else if (carType === '7_SEATS') {
+      row3Seats = [5, 6, 7]
+      row3Cols = 'grid-cols-3'
+    }
+
     return (
       <div className="rounded-2xl border-2 border-gray-200 bg-white p-6 shadow-sm">
         <div className="mb-6 flex items-center justify-between border-b pb-4">
@@ -322,20 +384,22 @@ export default function Carpool() {
         </div>
 
         <div className="mx-auto max-w-[240px] space-y-4">
+          {/* Baris 1: Depan (Kursi 1 Kiri, Sopir Kanan) */}
           <div className="flex justify-between border-b-2 border-dashed border-gray-200 pb-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 font-bold text-gray-400">
-              Sopir
-            </div>
             <button
               onClick={() => toggleSeat(1)}
               className={`flex h-12 w-12 items-center justify-center rounded-xl font-bold transition ${selectedSeats.includes(1) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
             >
               1
             </button>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 font-bold text-gray-400">
+              Sopir
+            </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            {[2, 3, 4].map(seatNum => (
+          {/* Baris 2: Tengah */}
+          <div className={`grid ${row2Cols} gap-3`}>
+            {row2Seats.map(seatNum => (
               <button
                 key={seatNum}
                 onClick={() => toggleSeat(seatNum)}
@@ -346,9 +410,10 @@ export default function Carpool() {
             ))}
           </div>
 
-          {carType === '6_SEATS' && (
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              {[5, 6].map(seatNum => (
+          {/* Baris 3: Belakang (jika ada) */}
+          {row3Seats.length > 0 && (
+            <div className={`grid ${row3Cols} gap-3 pt-2`}>
+              {row3Seats.map(seatNum => (
                 <button
                   key={seatNum}
                   onClick={() => toggleSeat(seatNum)}

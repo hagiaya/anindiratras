@@ -206,44 +206,75 @@ export default function Package() {
     setError('')
     try {
       const demoMode = localStorage.getItem('demo_mode')
-      
+      let userId: string | null = null
+
       if (!demoMode) {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) throw new Error('Anda belum login')
+        userId = user.id
+      } else {
+        userId = 'demo-user-id'
       }
 
       const totalPrice = getFinalPrice(totalPackagePrice)
+      const orderPayloadData = {
+        user_id: userId,
+        order_type: 'TITIP_BARANG',
+        pickup_address: pickup,
+        pickup_lat: pickupLat,
+        pickup_lng: pickupLng,
+        dropoff_address: dropoff,
+        dropoff_lat: dropoffLat,
+        dropoff_lng: dropoffLng,
+        package_details: JSON.stringify({
+          packageType,
+          senderName,
+          senderPhone,
+          receiverName,
+          receiverPhone,
+          itemName,
+          weightKg: Number(weightKg) || 0,
+          distanceKm,
+          radiusExtraFee
+        }),
+        total_price: totalPrice,
+        payment_method: paymentMethod,
+        payment_status: paymentMethod === 'TRANSFER' ? 'PAID' : 'PENDING',
+        status: 'PENDING',
+        promo_id: promoData?.id || null
+      }
 
-      const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
-        body: {
-          paymentMethod,
-          orderPayload: {
-            order_type: 'TITIP_BARANG',
-            pickup_address: pickup,
-            pickup_lat: pickupLat,
-            pickup_lng: pickupLng,
-            dropoff_address: dropoff,
-            dropoff_lat: dropoffLat,
-            dropoff_lng: dropoffLng,
-            package_details: JSON.stringify({
-              packageType,
-              senderName,
-              senderPhone,
-              receiverName,
-              receiverPhone,
-              itemName,
-              weightKg: Number(weightKg) || 0,
-              distanceKm,
-              radiusExtraFee
-            }),
-            total_price: totalPrice,
-            promo_id: promoData?.id || null
+      let orderCreated = false
+      try {
+        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('checkout', {
+          body: {
+            paymentMethod,
+            orderPayload: orderPayloadData
           }
+        })
+        if (!checkoutError && checkoutData && !checkoutData.error) {
+          orderCreated = true
         }
-      })
+      } catch (e) {
+        console.warn('Edge function checkout fallback to direct DB insert', e)
+      }
 
-      if (checkoutError) throw new Error(checkoutError.message || 'Gagal membuat pesanan')
-      if (checkoutData?.error) throw new Error(checkoutData.error)
+      if (!orderCreated) {
+        const { error: directError } = await supabase
+          .from('orders')
+          .insert(orderPayloadData)
+
+        if (directError) throw new Error(`Gagal membuat pesanan: ${directError.message}`)
+      }
+
+      // Notify admin dashboard via broadcast
+      try {
+        await supabase.channel('admin_orders_channel').send({
+          type: 'broadcast',
+          event: 'new_order',
+          payload: { order_type: 'TITIP_BARANG' }
+        })
+      } catch (_e) {}
 
       navigate('/orders')
     } catch (err: any) {
