@@ -17,6 +17,7 @@ export default function Carpool() {
   // Seat selection
   const [carType, setCarType] = useState<string>('6_SEATS')
   const [selectedSeats, setSelectedSeats] = useState<number[]>([])
+  const [occupiedSeats, setOccupiedSeats] = useState<number[]>([])
   
   // Location & Time
   const [pickup, setPickup] = useState('')
@@ -36,7 +37,7 @@ export default function Carpool() {
   const [availableExtraPrices, setAvailableExtraPrices] = useState<any[]>([])
   const [selectedExtraPrice, setSelectedExtraPrice] = useState<any>(null)
 
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'ANINDIRAPAY'>('CASH')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [isGeocoding, setIsGeocoding] = useState(false)
@@ -49,6 +50,36 @@ export default function Carpool() {
   const [promoSuccess, setPromoSuccess] = useState('')
 
   const [distanceKm, setDistanceKm] = useState<number>(0)
+
+  useEffect(() => {
+    const fetchOccupiedSeats = async () => {
+      if (!selectedRoute || !departureDate || !departureTime || step !== 3) return
+      
+      const { data } = await supabase
+        .from('orders')
+        .select('package_details')
+        .eq('order_type', 'CARPOOL')
+        .eq('route_id', selectedRoute.id)
+        .neq('status', 'CANCELLED')
+        
+      if (data) {
+        let occupied = []
+        data.forEach(order => {
+          try {
+            const details = JSON.parse(order.package_details)
+            if (details.departureDate === departureDate && details.departureTime === departureTime) {
+               if (details.selectedSeats && Array.isArray(details.selectedSeats)) {
+                 occupied = [...occupied, ...details.selectedSeats]
+               }
+            }
+          } catch(e) {}
+        })
+        setOccupiedSeats(occupied)
+      }
+    }
+    fetchOccupiedSeats()
+  }, [selectedRoute, departureDate, departureTime, step])
+
 
   // Calculate real road driving distance when coordinates change
   useEffect(() => {
@@ -150,18 +181,7 @@ export default function Carpool() {
     if (!selectedRoute) return 0
     let total = 0
     selectedSeats.forEach(seatNum => {
-      let seatCategory = 'MID'
-      if (seatNum === 1) {
-        seatCategory = 'FRONT'
-      } else if (carType === '5_SEATS' && (seatNum === 4 || seatNum === 5)) {
-        seatCategory = 'BACK'
-      } else if (carType === '6_SEATS' && (seatNum === 5 || seatNum === 6)) {
-        seatCategory = 'BACK'
-      } else if (carType === '7_SEATS' && (seatNum === 5 || seatNum === 6 || seatNum === 7)) {
-        seatCategory = 'BACK'
-      }
-      
-      const price = selectedRoute.prices[seatCategory] || selectedRoute.prices['MID'] || 50000
+      const price = selectedRoute.prices[String(seatNum)] || 50000
       total += price
     })
     return total
@@ -216,7 +236,7 @@ export default function Carpool() {
     }
   }
 
-  const handleNextStep3 = async () => {
+  const handleNextStep2 = async () => {
     setError('')
     setIsGeocoding(true)
 
@@ -251,7 +271,7 @@ export default function Carpool() {
     }
 
     setIsGeocoding(false)
-    setStep(4)
+    setStep(3)
   }
 
   const handleCheckout = async () => {
@@ -387,8 +407,9 @@ export default function Carpool() {
           {/* Baris 1: Depan (Kursi 1 Kiri, Sopir Kanan) */}
           <div className="flex justify-between border-b-2 border-dashed border-gray-200 pb-4">
             <button
+              disabled={occupiedSeats.includes(1)}
               onClick={() => toggleSeat(1)}
-              className={`flex h-12 w-12 items-center justify-center rounded-xl font-bold transition ${selectedSeats.includes(1) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
+              className={`flex h-12 w-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(1) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(1) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
             >
               1
             </button>
@@ -402,8 +423,9 @@ export default function Carpool() {
             {row2Seats.map(seatNum => (
               <button
                 key={seatNum}
+                disabled={occupiedSeats.includes(seatNum)}
                 onClick={() => toggleSeat(seatNum)}
-                className={`flex h-12 items-center justify-center rounded-xl font-bold transition ${selectedSeats.includes(seatNum) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
+                className={`flex h-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(seatNum) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(seatNum) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
               >
                 {seatNum}
               </button>
@@ -487,7 +509,7 @@ export default function Carpool() {
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-gray-800">{route.name}</span>
                         <span className="text-sm font-bold text-primary">
-                          Mulai Rp {(route.prices['MID'] || route.prices['FRONT'] || 0).toLocaleString('id-ID')}
+                          Mulai Rp {(route.prices['1'] || route.prices['2'] || route.prices['3'] || 0).toLocaleString('id-ID')}
                         </span>
                       </div>
                     </div>
@@ -501,13 +523,13 @@ export default function Carpool() {
               onClick={() => setStep(2)}
               className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
             >
-              Lanjut Pilih Kursi
+              Lanjut Pilih Lokasi & Waktu
             </button>
           </div>
         )}
 
-        {/* STEP 2: KURSI & HARGA */}
-        {step === 2 && (
+        {/* STEP 3: KURSI & HARGA */}
+        {step === 3 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div>
               <label className="mb-3 block text-sm font-bold text-gray-700">Pilih Layout Mobil</label>
@@ -537,16 +559,16 @@ export default function Carpool() {
 
             <button
               disabled={selectedSeats.length === 0}
-              onClick={() => setStep(3)}
+              onClick={() => setStep(4)}
               className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
             >
-              Lanjut Pilih Lokasi & Waktu
+              Lanjut ke Pembayaran
             </button>
           </div>
         )}
 
-        {/* STEP 3: LOKASI JEMPUT & WAKTU */}
-        {step === 3 && (
+        {/* STEP 2: LOKASI JEMPUT & WAKTU */}
+        {step === 2 && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
             <div className="rounded-xl bg-white p-4 shadow-sm border border-gray-100">
               <h2 className="mb-4 text-sm font-bold text-gray-800 uppercase tracking-wide">Lokasi Penjemputan & Pengantaran</h2>
@@ -678,10 +700,10 @@ export default function Carpool() {
 
             <button
               disabled={!pickup || !dropoff || !departureDate || !departureTime || isGeocoding}
-              onClick={handleNextStep3}
+              onClick={handleNextStep2}
               className="mt-6 w-full rounded-xl bg-primary py-4 font-bold text-white shadow-lg disabled:opacity-50"
             >
-              Lanjut ke Pembayaran
+              Lanjut Pilih Kursi
             </button>
           </div>
         )}

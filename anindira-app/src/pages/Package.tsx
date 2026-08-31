@@ -32,7 +32,7 @@ export default function Package() {
   // Detail Barang
   const [itemName, setItemName] = useState('')
   const [weightKg, setWeightKg] = useState<number | ''>('')
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'ANINDIRAPAY'>('CASH')
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -112,10 +112,10 @@ export default function Package() {
   const basePrice = basePriceData ? Number(basePriceData.base_price) : defaultBasePrice
   const pricePerKg = perKgPriceData ? Number(perKgPriceData.base_price) : defaultPricePerKg
 
-  // Radius extra price: if distance exceeds 5 km, add 2,000 per extra km
-  const radiusExtraFee = distanceKm > 5 ? Math.round(distanceKm - 5) * 2000 : 0
+  // Radius extra price: removed as per request
+  const radiusExtraFee = 0
   
-  const totalPackagePrice = basePrice + ((Number(weightKg) || 0) * pricePerKg) + radiusExtraFee
+  const totalPackagePrice = basePrice + ((Number(weightKg) || 0) * pricePerKg)
 
   const getFinalPrice = (totalBase: number) => {
     if (!promoData) return totalBase

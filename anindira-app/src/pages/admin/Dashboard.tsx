@@ -400,6 +400,43 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {selectedOrder.package_details && (
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Detail Spesifik</p>
+                  <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-sm font-medium text-gray-800 space-y-2">
+                    {(() => {
+                      try {
+                        const details = JSON.parse(selectedOrder.package_details)
+                        if (selectedOrder.order_type === 'CARPOOL') {
+                          return (
+                            <>
+                              <div className="flex justify-between"><span className="text-gray-500">Tgl Berangkat:</span> <span>{details.departureDate}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-500">Jam Berangkat:</span> <span>{details.departureTime}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-500">Kursi Dipilih:</span> <span>{details.selectedSeats?.join(', ')}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-500">Tipe Mobil:</span> <span>{details.carType?.replace('_', ' ')}</span></div>
+                              {details.extraPriceName && <div className="flex justify-between"><span className="text-gray-500">Tambahan:</span> <span>{details.extraPriceName}</span></div>}
+                            </>
+                          )
+                        } else if (selectedOrder.order_type === 'TITIP_BARANG') {
+                          return (
+                            <>
+                              <div className="flex justify-between"><span className="text-gray-500">Kategori:</span> <span>{details.category}</span></div>
+                              <div className="flex justify-between"><span className="text-gray-500">Berat:</span> <span>{details.weight} Kg</span></div>
+                              <div className="flex justify-between"><span className="text-gray-500">Penerima:</span> <span>{details.receiverName} ({details.receiverPhone})</span></div>
+                              {details.notes && <div className="flex justify-between"><span className="text-gray-500">Catatan:</span> <span>{details.notes}</span></div>}
+                            </>
+                          )
+                        } else {
+                          return <pre className="text-xs">{JSON.stringify(details, null, 2)}</pre>
+                        }
+                      } catch {
+                        return <p>{selectedOrder.package_details}</p>
+                      }
+                    })()}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Informasi Pelanggan</p>
                 <div className="flex items-center justify-between bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
@@ -422,6 +459,29 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+
+              {selectedOrder.driver_id && (
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Informasi Sopir</p>
+                  <div className="flex items-center space-x-3 bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
+                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold">
+                      S
+                    </div>
+                    {(() => {
+                      const driver = drivers.find(d => d.id === selectedOrder.driver_id)
+                      if (!driver) return <p className="font-bold text-gray-900">Loading...</p>
+                      return (
+                        <div>
+                          <p className="font-bold text-gray-900">{driver.full_name || 'Nama Sopir'}</p>
+                          <p className="text-xs text-gray-500">
+                            {driver.phone || '-'} • {driver.driver_profiles?.[0]?.car_plate_number || driver.driver_profiles?.car_plate_number || 'Plat Belum Diatur'}
+                          </p>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
 
               {/* Locations */}
               <div>

@@ -30,7 +30,7 @@ export default function Rental() {
   const [pickupLat, setPickupLat] = useState<number | null>(null)
   const [pickupLng, setPickupLng] = useState<number | null>(null)
   const [isMapOpen, setIsMapOpen] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'ANINDIRAPAY'>('CASH')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

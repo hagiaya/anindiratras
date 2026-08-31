@@ -15,23 +15,10 @@ export default function IncomingCallAlert() {
   useEffect(() => {
     let channel: any = null
 
-    const setupListener = async () => {
-      // Demo mode bypass
-      if (localStorage.getItem('demo_mode')) {
-        // We simulate listening for demo by attaching to a global window event or just relying on standard supabase if we have a demo user id.
-        // Actually for demo, let's just listen to a public channel 'demo_calls'
-        channel = supabase.channel('demo_calls')
-        channel.on('broadcast', { event: 'incoming_call' }, (payload: any) => {
-          setIncomingCall(payload.payload)
-          playRingtone()
-        }).subscribe()
-        return
-      }
-
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
-      channel = supabase.channel(`user_${session.user.id}`)
+    const setupListener = async (userId: string) => {
+      if (channel) supabase.removeChannel(channel)
+      
+      channel = supabase.channel(`user_${userId}`)
       channel.on('broadcast', { event: 'incoming_call' }, (payload: any) => {
         console.log('Incoming call received:', payload.payload)
         setIncomingCall(payload.payload)
@@ -39,10 +26,33 @@ export default function IncomingCallAlert() {
       }).subscribe()
     }
 
-    setupListener()
+    if (localStorage.getItem('demo_mode')) {
+      channel = supabase.channel('demo_calls')
+      channel.on('broadcast', { event: 'incoming_call' }, (payload: any) => {
+        setIncomingCall(payload.payload)
+        playRingtone()
+      }).subscribe()
+      return
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id) setupListener(session.user.id)
+    })
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user?.id) {
+        setupListener(session.user.id)
+      } else {
+        if (channel) {
+          supabase.removeChannel(channel)
+          channel = null
+        }
+      }
+    })
 
     return () => {
       if (channel) supabase.removeChannel(channel)
+      authListener.subscription.unsubscribe()
     }
   }, [])
 

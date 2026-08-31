@@ -1,6 +1,15 @@
+import { supabase } from './supabase'
+
 // Web Audio API Sound Synthesizer for Reliable Audio Notifications
-export function playNotificationSound() {
+export async function playNotificationSound() {
   try {
+    const { data } = await supabase.from('app_settings').select('notification_sound_url').maybeSingle()
+    if (data?.notification_sound_url) {
+      const audio = new Audio(data.notification_sound_url)
+      audio.play().catch(e => console.warn('Audio play failed:', e))
+      return
+    }
+
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioContext) return
 

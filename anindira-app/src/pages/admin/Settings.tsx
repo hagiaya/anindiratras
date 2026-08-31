@@ -12,6 +12,9 @@ export default function Settings() {
   const [appSettings, setAppSettings] = useState<any>(null)
   const [profitPercentage, setProfitPercentage] = useState<number>(0)
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false)
+  const [notificationSoundUrl, setNotificationSoundUrl] = useState<string>('')
+  const [soundFile, setSoundFile] = useState<File | null>(null)
+  const [isUploadingSound, setIsUploadingSound] = useState(false)
   
   // Jam Keberangkatan State (7 times Dalam Kota, 4 times Luar Kota)
   const [departureTimes, setDepartureTimes] = useState<any[]>([])
@@ -23,9 +26,9 @@ export default function Settings() {
 
   // Carpool Pricing State
   const [selectedCarpoolRouteId, setSelectedCarpoolRouteId] = useState('')
-  const [carpoolFrontPrice, setCarpoolFrontPrice] = useState<number | string>(60000)
-  const [carpoolMidPrice, setCarpoolMidPrice] = useState<number | string>(50000)
-  const [carpoolBackPrice, setCarpoolBackPrice] = useState<number | string>(50000)
+  const [carpoolPrices, setCarpoolPrices] = useState<Record<string, number | string>>({
+    '1': 60000, '2': 50000, '3': 50000, '4': 50000, '5': 50000, '6': 50000, '7': 50000
+  })
 
   // Extra Prices (Jarak Jauh)
   const [extraPrices, setExtraPrices] = useState<any[]>([])
@@ -90,6 +93,7 @@ export default function Settings() {
         setAppSettings(settingsData)
         setProfitPercentage(settingsData.profit_percentage || 0)
         setMaintenanceMode(settingsData.maintenance_mode || false)
+        setNotificationSoundUrl(settingsData.notification_sound_url || '')
       }
 
       // Fetch Departure Times
@@ -176,16 +180,33 @@ export default function Settings() {
     setError('')
     setSuccessMsg('')
     try {
+      let finalSoundUrl = notificationSoundUrl
+
+      if (soundFile) {
+        setIsUploadingSound(true)
+        const fileExt = soundFile.name.split('.').pop()
+        const fileName = `notif_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage.from('sounds').upload(fileName, soundFile)
+        if (uploadError) throw uploadError
+        const { data: urlData } = supabase.storage.from('sounds').getPublicUrl(fileName)
+        finalSoundUrl = urlData.publicUrl
+        setNotificationSoundUrl(finalSoundUrl)
+        setSoundFile(null)
+        setIsUploadingSound(false)
+      }
+
       if (appSettings) {
         const { error } = await supabase.from('app_settings').update({
           profit_percentage: profitPercentage,
-          maintenance_mode: maintenanceMode
+          maintenance_mode: maintenanceMode,
+          notification_sound_url: finalSoundUrl
         }).eq('id', appSettings.id)
         if (error) throw error
       } else {
         const { error } = await supabase.from('app_settings').insert({
           profit_percentage: profitPercentage,
-          maintenance_mode: maintenanceMode
+          maintenance_mode: maintenanceMode,
+          notification_sound_url: finalSoundUrl
         })
         if (error) throw error
       }
@@ -270,11 +291,9 @@ export default function Settings() {
     setSuccessMsg('')
 
     try {
-      const seatConfigs = [
-        { seat_type: 'FRONT', price: Number(carpoolFrontPrice) },
-        { seat_type: 'MID', price: Number(carpoolMidPrice) },
-        { seat_type: 'BACK', price: Number(carpoolBackPrice) }
-      ]
+      const seatConfigs = [1, 2, 3, 4, 5, 6, 7].map(num => ({
+        seat_type: String(num), price: Number(carpoolPrices[String(num)])
+      }))
 
       for (const config of seatConfigs) {
         const existing = prices.find(p => p.product_type === 'CARPOOL' && p.route_id === selectedCarpoolRouteId && p.seat_type === config.seat_type)
@@ -545,17 +564,16 @@ export default function Settings() {
   const dalamKotaDepartureTimes = departureTimes.filter(d => !d.route_type || d.route_type === 'DALAM_KOTA')
   const luarKotaDepartureTimes = departureTimes.filter(d => d.route_type === 'LUAR_KOTA')
 
-  // Group Carpool Prices by Route
   const carpoolPricesByRoute = routes.map(r => {
     const routePrices = prices.filter(p => p.product_type === 'CARPOOL' && p.route_id === r.id)
-    const front = routePrices.find(p => p.seat_type === 'FRONT')?.base_price || 0
-    const mid = routePrices.find(p => p.seat_type === 'MID')?.base_price || 0
-    const back = routePrices.find(p => p.seat_type === 'BACK')?.base_price || 0
+    const seatPrices: Record<string, number> = {}
+    for (let i = 1; i <= 7; i++) {
+      const p = routePrices.find(rp => rp.seat_type === String(i))
+      seatPrices[String(i)] = p ? Number(p.base_price) : 0
+    }
     return {
       route: r,
-      frontPrice: Number(front),
-      midPrice: Number(mid),
-      backPrice: Number(back),
+      prices: seatPrices,
       hasPrices: routePrices.length > 0
     }
   })
@@ -675,6 +693,31 @@ export default function Settings() {
                 <input type="checkbox" className="sr-only peer" checked={maintenanceMode} onChange={() => setMaintenanceMode(!maintenanceMode)} />
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
               </label>
+            </div>
+
+            <div>
+              <label className="text-sm font-bold text-gray-700">Notifikasi Suara Pesanan Baru (Admin)</label>
+              <div className="mt-2 space-y-2">
+                <input 
+                  type="file" 
+                  accept="audio/mp3,audio/wav"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setSoundFile(e.target.files[0])
+                    }
+                  }}
+                  className="w-full border border-gray-300 rounded-xl p-3 text-sm font-bold text-gray-800"
+                />
+                {notificationSoundUrl && !soundFile && (
+                  <div className="text-xs text-green-600 font-bold flex items-center">
+                    ✓ Suara custom sudah diatur
+                    <button type="button" onClick={() => setNotificationSoundUrl('')} className="ml-2 text-red-500 hover:underline">Hapus</button>
+                  </div>
+                )}
+                {soundFile && (
+                  <div className="text-xs text-blue-600 font-bold">File dipilih: {soundFile.name}</div>
+                )}
+              </div>
             </div>
 
             <button 
@@ -860,9 +903,7 @@ export default function Settings() {
                     setSelectedCarpoolRouteId(rId)
                     const pObj = carpoolPricesByRoute.find(p => p.route.id === rId)
                     if (pObj && pObj.hasPrices) {
-                      setCarpoolFrontPrice(pObj.frontPrice)
-                      setCarpoolMidPrice(pObj.midPrice)
-                      setCarpoolBackPrice(pObj.backPrice)
+                      setCarpoolPrices(pObj.prices)
                     }
                   }}
                   className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold bg-white"
@@ -874,41 +915,19 @@ export default function Settings() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi Depan (FRONT)</label>
-                <input 
-                  required 
-                  type="number" 
-                  value={carpoolFrontPrice} 
-                  onChange={e => setCarpoolFrontPrice(e.target.value)} 
-                  placeholder="Contoh: 60000" 
-                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi Tengah (MID)</label>
-                <input 
-                  required 
-                  type="number" 
-                  value={carpoolMidPrice} 
-                  onChange={e => setCarpoolMidPrice(e.target.value)} 
-                  placeholder="Contoh: 50000" 
-                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi Belakang (BACK)</label>
-                <input 
-                  required 
-                  type="number" 
-                  value={carpoolBackPrice} 
-                  onChange={e => setCarpoolBackPrice(e.target.value)} 
-                  placeholder="Contoh: 50000" 
-                  className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
-                />
-              </div>
+              {[1, 2, 3, 4, 5, 6, 7].map(num => (
+                <div key={num}>
+                  <label className="text-xs font-bold text-gray-500 uppercase">Harga Kursi {num}</label>
+                  <input 
+                    required 
+                    type="number" 
+                    value={carpoolPrices[String(num)]} 
+                    onChange={e => setCarpoolPrices({ ...carpoolPrices, [String(num)]: e.target.value })} 
+                    placeholder="Contoh: 60000" 
+                    className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" 
+                  />
+                </div>
+              ))}
 
               <button 
                 disabled={isRefreshing || !selectedCarpoolRouteId} 
@@ -930,9 +949,7 @@ export default function Settings() {
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Nama Rute</th>
                     <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Tipe Rute</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Depan</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Tengah</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Belakang</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Harga Kursi (1-7)</th>
                     <th className="px-6 py-4 text-right text-xs font-bold uppercase text-gray-500">Aksi</th>
                   </tr>
                 </thead>
@@ -945,22 +962,20 @@ export default function Settings() {
                           {item.route.route_type?.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-bold text-sm text-green-600">
-                        {item.frontPrice > 0 ? `Rp ${item.frontPrice.toLocaleString('id-ID')}` : '-'}
-                      </td>
-                      <td className="px-6 py-4 font-bold text-sm text-blue-600">
-                        {item.midPrice > 0 ? `Rp ${item.midPrice.toLocaleString('id-ID')}` : '-'}
-                      </td>
-                      <td className="px-6 py-4 font-bold text-sm text-purple-600">
-                        {item.backPrice > 0 ? `Rp ${item.backPrice.toLocaleString('id-ID')}` : '-'}
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {[1, 2, 3, 4, 5, 6, 7].map(num => (
+                            <span key={num} className="text-[10px] bg-gray-100 px-2 py-1 rounded font-bold text-gray-700">
+                              K{num}: {item.prices[String(num)] > 0 ? (item.prices[String(num)] / 1000) + 'k' : '-'}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right space-x-1">
                         <button 
                           onClick={() => {
                             setSelectedCarpoolRouteId(item.route.id)
-                            setCarpoolFrontPrice(item.frontPrice)
-                            setCarpoolMidPrice(item.midPrice)
-                            setCarpoolBackPrice(item.backPrice)
+                            setCarpoolPrices(item.prices)
                           }} 
                           className="text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition"
                           title="Set / Edit Tarif"
