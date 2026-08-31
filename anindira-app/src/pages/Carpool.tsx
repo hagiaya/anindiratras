@@ -63,7 +63,7 @@ export default function Carpool() {
         .neq('status', 'CANCELLED')
         
       if (data) {
-        let occupied = []
+        let occupied: number[] = []
         data.forEach(order => {
           try {
             const details = JSON.parse(order.package_details)

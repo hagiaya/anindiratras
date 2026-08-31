@@ -14,7 +14,7 @@ export default function Settings() {
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false)
   const [notificationSoundUrl, setNotificationSoundUrl] = useState<string>('')
   const [soundFile, setSoundFile] = useState<File | null>(null)
-  const [isUploadingSound, setIsUploadingSound] = useState(false)
+  const [, setIsUploadingSound] = useState(false)
   
   // Jam Keberangkatan State (7 times Dalam Kota, 4 times Luar Kota)
   const [departureTimes, setDepartureTimes] = useState<any[]>([])
