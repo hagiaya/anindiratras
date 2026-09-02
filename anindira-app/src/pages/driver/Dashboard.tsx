@@ -14,8 +14,6 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'MAPS' | 'RIWAYAT' | 'PROFIL'>('DASHBOARD')
 
-  const [adminDepartureTimes, setAdminDepartureTimes] = useState<string[]>([])
-  const [departureTimes, setDepartureTimes] = useState<{[key: string]: string}>({})
 
   const totalEarnings = history.reduce((sum, order) => sum + (Number(order.total_price) || 0), 0)
   const totalTrips = history.length
@@ -124,11 +122,6 @@ export default function DriverDashboard() {
       setDriverBalance(userData.balance || 0)
     }
 
-    // Fetch departure times
-    const { data: depTimes } = await supabase.from('departure_times').select('time_string').order('time_string', { ascending: true })
-    if (depTimes) {
-      setAdminDepartureTimes(depTimes.map(d => d.time_string))
-    }
 
     fetchOrders(currentSession.user.id)
     return currentSession
@@ -241,13 +234,17 @@ export default function DriverDashboard() {
   }
 
   const handleSetDepartureTime = async (order: any) => {
-    const time = departureTimes[order.id]
-    if (!time) {
-      alert('Tentukan jam terlebih dahulu')
-      return
-    }
-
-    const messageText = `Sopir telah mengatur jam estimasi penjemputan Anda pada pukul: *${time}*. Harap bersiap-siap!`
+    let pkgDetails: any = {}
+    try {
+      if (typeof order.package_details === 'string') {
+        pkgDetails = JSON.parse(order.package_details)
+      } else if (order.package_details) {
+        pkgDetails = order.package_details
+      }
+    } catch(e) {}
+    
+    const time = pkgDetails.departureTime || 'Segera'
+    const messageText = `Sopir akan segera menjemput Anda untuk jadwal keberangkatan jam: *${time}*. Harap bersiap-siap!`
     
     if (localStorage.getItem('demo_mode')) {
       alert(`Pesan terkirim ke penumpang: ${messageText}`)
@@ -384,19 +381,26 @@ export default function DriverDashboard() {
                 {order.status === 'ASSIGNED' && (
                   <div className="mb-6 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 rounded-2xl border border-cyan-200 shadow-sm">
                     <label className="text-[11px] font-black text-cyan-800 uppercase tracking-widest flex items-center space-x-2 mb-2">
-                      <Clock size={14} /> <span>Atur Jam Pemberangkatan</span>
+                      <Clock size={14} /> <span>Info Penjemputan</span>
                     </label>
-                    <div className="flex space-x-2">
-                      <select 
-                        value={departureTimes[order.id] || ''}
-                        onChange={(e) => setDepartureTimes({...departureTimes, [order.id]: e.target.value})}
-                        className="flex-1 bg-white border border-cyan-300 rounded-xl px-3 font-bold text-gray-900 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 shadow-sm"
-                      >
-                        <option value="" disabled>Pilih Jam (Dari Admin)</option>
-                        {adminDepartureTimes.map(time => (
-                          <option key={time} value={time}>{time} WIB</option>
-                        ))}
-                      </select>
+                    <div className="flex space-x-2 items-center">
+                      <div className="flex-1 bg-white border border-cyan-300 rounded-xl px-3 py-2 font-bold text-gray-900 shadow-sm">
+                        {(() => {
+                          let pkgDetails: any = {}
+                          try {
+                            if (typeof order.package_details === 'string') {
+                              pkgDetails = JSON.parse(order.package_details)
+                            } else if (order.package_details) {
+                              pkgDetails = order.package_details
+                            }
+                          } catch(e) {}
+                          
+                          if (order.order_type === 'CARPOOL' && pkgDetails.departureTime) {
+                            return `Jadwal: ${pkgDetails.departureDate} ${pkgDetails.departureTime} WIB`
+                          }
+                          return 'Kirim Notif Penjemputan'
+                        })()}
+                      </div>
                       <button 
                         onClick={() => handleSetDepartureTime(order)}
                         className="bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold px-4 py-3 rounded-xl active:scale-95 transition text-sm whitespace-nowrap shadow-md shadow-blue-200"
@@ -404,7 +408,7 @@ export default function DriverDashboard() {
                         Kirim Info
                       </button>
                     </div>
-                    <p className="text-[10px] text-blue-600 font-medium mt-2 leading-tight">Beritahu penumpang jam berapa Anda akan menjemput mereka.</p>
+                    <p className="text-[10px] text-blue-600 font-medium mt-2 leading-tight">Beritahu penumpang bahwa Anda akan segera menjemput mereka.</p>
                   </div>
                 )}
 

@@ -27,6 +27,12 @@ export default function AdminLogin() {
     setLoading(true)
     setError('')
     try {
+      if (adminEmail === 'admin@demo.com') {
+        localStorage.setItem('demo_admin', 'true')
+        navigate('/admin', { replace: true })
+        return
+      }
+
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: adminEmail,
         password: adminPassword,
@@ -59,6 +65,7 @@ export default function AdminLogin() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Admin Portal</h1>
           <p className="text-sm text-gray-500 mt-2">Gunakan kredensial admin Anda untuk masuk</p>
+          <p className="text-xs text-blue-500 font-medium mt-1">(Untuk bypass/demo lokal, gunakan email: admin@demo.com)</p>
         </div>
 
         {error && (

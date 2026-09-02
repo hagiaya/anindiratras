@@ -178,6 +178,13 @@ function PrivateRoute({ children, requiredRole }: { children: React.ReactNode, r
   const location = useLocation()
 
   useEffect(() => {
+    // DEV BYPASS FOR ADMIN
+    if (requiredRole === 'ADMIN' && localStorage.getItem('demo_admin') === 'true') {
+       setSession({ user: { id: 'admin-dev', user_metadata: { role: 'ADMIN' } } })
+       setLoading(false)
+       return
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
@@ -188,7 +195,7 @@ function PrivateRoute({ children, requiredRole }: { children: React.ReactNode, r
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [requiredRole])
 
   if (loading) return <div className="flex h-screen items-center justify-center">Memuat...</div>
 

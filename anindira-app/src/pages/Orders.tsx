@@ -34,8 +34,9 @@ export default function Orders() {
       if (session) {
         fetchOrdersAndBalance(session)
         
+        const channelName = `user_orders_${session.user.id}_${Date.now()}`
         subscription = supabase
-          .channel('user_orders')
+          .channel(channelName)
           .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 

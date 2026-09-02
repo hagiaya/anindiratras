@@ -115,7 +115,8 @@ export default function Package() {
   // Radius extra price: removed as per request
   const radiusExtraFee = 0
   
-  const totalPackagePrice = basePrice + ((Number(weightKg) || 0) * pricePerKg)
+  const totalWeightPrice = pricePerKg * (Number(weightKg) || 0)
+  const totalPackagePrice = basePrice + totalWeightPrice
 
   const getFinalPrice = (totalBase: number) => {
     if (!promoData) return totalBase
@@ -465,7 +466,7 @@ export default function Package() {
                     />
                     <span className="text-gray-500 font-bold">Kg</span>
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-2">Tarif Admin: Dasar Rp {basePrice.toLocaleString('id-ID')} + (Rp {pricePerKg.toLocaleString('id-ID')} / Kg)</p>
+                  <p className="text-[10px] text-gray-400 mt-2">Tarif Admin: Dasar Rp {basePrice.toLocaleString('id-ID')} + Tarif Berat Rp {pricePerKg.toLocaleString('id-ID')}/kg</p>
                 </div>
               </div>
             </div>
@@ -476,8 +477,8 @@ export default function Package() {
                 <span>Rp {basePrice.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between text-xs text-gray-600 font-medium">
-                <span>Berat Paket ({Number(weightKg) || 0} kg x Rp {pricePerKg.toLocaleString('id-ID')})</span>
-                <span>Rp {((Number(weightKg) || 0) * pricePerKg).toLocaleString('id-ID')}</span>
+                <span>Tarif Berat Paket ({Number(weightKg) || 0} kg)</span>
+                <span>Rp {totalWeightPrice.toLocaleString('id-ID')}</span>
               </div>
               {radiusExtraFee > 0 && (
                 <div className="flex justify-between text-xs text-orange-700 font-bold border-t border-orange-200 pt-1">
