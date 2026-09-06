@@ -72,7 +72,22 @@ export default function Chat() {
         return
       }
 
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      // Add timeout to prevent hanging on getSession
+      const getSessionPromise = supabase.auth.getSession()
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 5000))
+      const sessionResult: any = await Promise.race([getSessionPromise, timeoutPromise])
+
+      if (sessionResult.timeout) {
+         console.warn("Session fetch timeout")
+      }
+
+      let currentSession = sessionResult?.data?.session
+      
+      // Fallback for demo admin bypass
+      if (!currentSession && localStorage.getItem('demo_admin') === 'true') {
+         currentSession = { user: { id: 'admin-dev', user_metadata: { role: 'ADMIN' } } }
+      }
+
       if (!currentSession) {
         navigate('/login')
         return

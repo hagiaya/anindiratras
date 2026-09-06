@@ -1,7 +1,7 @@
 {
   "name": "anindira-app",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@rolldown/binding-linux-x64-gnu": "^1.2.7",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",

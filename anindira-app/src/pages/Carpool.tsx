@@ -408,47 +408,74 @@ export default function Carpool() {
           </div>
         </div>
 
-        <div className="mx-auto max-w-[240px] space-y-4">
-          {/* Baris 1: Depan (Kursi 1 Kiri, Sopir Kanan) */}
-          <div className="flex justify-between border-b-2 border-dashed border-gray-200 pb-4">
-            <button
-              disabled={occupiedSeats.includes(1)}
-              onClick={() => toggleSeat(1)}
-              className={`flex h-12 w-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(1) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(1) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
-            >
-              1
-            </button>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 font-bold text-gray-400">
-              Sopir
+        <div className="mx-auto max-w-[260px] space-y-4">
+          {/* Baris 1: Depan */}
+          <div className="border-b-2 border-dashed border-gray-200 pb-3">
+            <div className="flex justify-between items-center text-[11px] font-bold text-gray-500 mb-1.5 px-1">
+              <span>Baris Depan</span>
+              {selectedSchedule?.seat_prices?.['1'] && (
+                <span className="text-primary font-bold">Rp {Number(selectedSchedule.seat_prices['1']).toLocaleString('id-ID')}</span>
+              )}
+            </div>
+            <div className="flex justify-between">
+              <button
+                disabled={occupiedSeats.includes(1)}
+                onClick={() => toggleSeat(1)}
+                className={`flex h-12 w-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(1) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(1) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
+              >
+                1
+              </button>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 font-bold text-gray-400">
+                Sopir
+              </div>
             </div>
           </div>
 
           {/* Baris 2: Tengah */}
-          <div className={`grid ${row2Cols} gap-3`}>
-            {row2Seats.map(seatNum => (
-              <button
-                key={seatNum}
-                disabled={occupiedSeats.includes(seatNum)}
-                onClick={() => toggleSeat(seatNum)}
-                className={`flex h-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(seatNum) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(seatNum) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
-              >
-                {seatNum}
-              </button>
-            ))}
-          </div>
-
-          {/* Baris 3: Belakang (jika ada) */}
-          {row3Seats.length > 0 && (
-            <div className={`grid ${row3Cols} gap-3 pt-2`}>
-              {row3Seats.map(seatNum => (
+          <div className="border-b-2 border-dashed border-gray-200 pb-3">
+            <div className="flex justify-between items-center text-[11px] font-bold text-gray-500 mb-1.5 px-1">
+              <span>Baris Tengah</span>
+              {selectedSchedule?.seat_prices?.['2'] && (
+                <span className="text-primary font-bold">Rp {Number(selectedSchedule.seat_prices['2']).toLocaleString('id-ID')}</span>
+              )}
+            </div>
+            <div className={`grid ${row2Cols} gap-3`}>
+              {row2Seats.map(seatNum => (
                 <button
                   key={seatNum}
+                  disabled={occupiedSeats.includes(seatNum)}
                   onClick={() => toggleSeat(seatNum)}
-                  className={`flex h-12 items-center justify-center rounded-xl font-bold transition ${selectedSeats.includes(seatNum) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
+                  className={`flex h-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(seatNum) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(seatNum) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
                 >
                   {seatNum}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Baris 3: Belakang (jika ada) */}
+          {row3Seats.length > 0 && (
+            <div>
+              <div className="flex justify-between items-center text-[11px] font-bold text-gray-500 mb-1.5 px-1">
+                <span>Baris Belakang</span>
+                {(selectedSchedule?.seat_prices?.[String(row3Seats[0])] || selectedSchedule?.seat_prices?.['5']) && (
+                  <span className="text-primary font-bold">
+                    Rp {Number(selectedSchedule.seat_prices[String(row3Seats[0])] || selectedSchedule.seat_prices['5']).toLocaleString('id-ID')}
+                  </span>
+                )}
+              </div>
+              <div className={`grid ${row3Cols} gap-3`}>
+                {row3Seats.map(seatNum => (
+                  <button
+                    key={seatNum}
+                    disabled={occupiedSeats.includes(seatNum)}
+                    onClick={() => toggleSeat(seatNum)}
+                    className={`flex h-12 items-center justify-center rounded-xl font-bold transition ${occupiedSeats.includes(seatNum) ? 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50' : selectedSeats.includes(seatNum) ? 'bg-primary text-white shadow-lg' : 'border-2 border-gray-200 text-gray-700 hover:border-primary'}`}
+                  >
+                    {seatNum}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -514,7 +541,11 @@ export default function Carpool() {
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-gray-800">{route.name}</span>
                         <span className="text-sm font-bold text-primary">
-                          Mulai Rp {(route.prices['1'] || route.prices['2'] || route.prices['3'] || 0).toLocaleString('id-ID')}
+                          {(() => {
+                            const pVals = Object.values(route.prices || {}).map(Number).filter(v => v > 0)
+                            const minP = pVals.length > 0 ? Math.min(...pVals) : (route.prices['1'] || 0)
+                            return `Mulai Rp ${minP.toLocaleString('id-ID')}`
+                          })()}
                         </span>
                       </div>
                     </div>
@@ -650,7 +681,13 @@ export default function Carpool() {
                         >
                           <div className="flex justify-between items-center mb-1">
                             <span className="font-bold text-gray-800">{sched.departure_time} WIB</span>
-                            <span className="text-xs font-bold text-primary">Rp {(sched.seat_prices['1'] || 0).toLocaleString('id-ID')}</span>
+                            {(() => {
+                              const sPrices = Object.values(sched.seat_prices || {}).map(Number).filter(v => v > 0)
+                              const minP = sPrices.length > 0 ? Math.min(...sPrices) : (sched.seat_prices?.['1'] || 0)
+                              return (
+                                <span className="text-xs font-bold text-primary">Mulai Rp {minP.toLocaleString('id-ID')}</span>
+                              )
+                            })()}
                           </div>
                           <div className="text-xs text-gray-500 font-medium">
                             Mobil {sched.car_type.split('_')[0]} Kursi

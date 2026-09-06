@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Map, RefreshCw, Landmark, QrCode, Upload, Settings as SettingsIcon, Clock, TrendingUp, AlertTriangle, Car, Package as PackageIcon, Plane, Edit2, CarFront } from 'lucide-react'
+import { Plus, Trash2, Map, RefreshCw, Landmark, QrCode, Upload, Settings as SettingsIcon, Clock, TrendingUp, AlertTriangle, Car, Package as PackageIcon, Plane, Edit2, CarFront, Armchair, Users, Check } from 'lucide-react'
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'DEPARTURES' | 'CARPOOL' | 'RENTAL' | 'PACKAGE' | 'AIRPORT' | 'ROUTES' | 'BANKS' | 'QRIS'>('GLOBAL')
+  const [activeTab, setActiveTab] = useState<'GLOBAL' | 'SEAT_PRICES' | 'CARPOOL' | 'RENTAL' | 'PACKAGE' | 'AIRPORT' | 'ROUTES' | 'BANKS' | 'QRIS'>('GLOBAL')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -16,7 +16,14 @@ export default function Settings() {
   const [notificationSoundUrl, setNotificationSoundUrl] = useState<string>('')
   const [soundFile, setSoundFile] = useState<File | null>(null)
   const [, setIsUploadingSound] = useState(false)
-  
+
+  // Seat Pricing State (Rute, Jumlah Kursi, Posisi Depan, Tengah, Belakang)
+  const [selectedSeatPriceRouteId, setSelectedSeatPriceRouteId] = useState('')
+  const [selectedCarCapacity, setSelectedCarCapacity] = useState<'3_SEATS' | '4_SEATS' | '5_SEATS' | '6_SEATS' | '7_SEATS'>('6_SEATS')
+  const [priceFront, setPriceFront] = useState<string>('')
+  const [priceMid, setPriceMid] = useState<string>('')
+  const [priceBack, setPriceBack] = useState<string>('')
+
   // Carpool Schedules State
   const [carpoolSchedules, setCarpoolSchedules] = useState<any[]>([])
   const [newSchedRouteId, setNewSchedRouteId] = useState('')
@@ -24,6 +31,9 @@ export default function Settings() {
   const [newSchedTime, setNewSchedTime] = useState('')
   const [newSchedCarType, setNewSchedCarType] = useState('6_SEATS')
   const [newSchedPrice, setNewSchedPrice] = useState('')
+  const [schedPriceFront, setSchedPriceFront] = useState('')
+  const [schedPriceMid, setSchedPriceMid] = useState('')
+  const [schedPriceBack, setSchedPriceBack] = useState('')
 
   // Jam Keberangkatan State (7 times Dalam Kota, 4 times Luar Kota)
   const [departureTimes, setDepartureTimes] = useState<any[]>([])
@@ -296,18 +306,214 @@ export default function Settings() {
   }
 
 
+  // --- SEAT PRICING LOGIC (RUTE, JUMLAH KURSI, DEPAN, TENGAH, BELAKANG) ---
+  const loadSeatPricesForRouteAndCapacity = (routeId: string, capacity: string) => {
+    if (!routeId) {
+      setPriceFront('')
+      setPriceMid('')
+      setPriceBack('')
+      return
+    }
+
+    const routePrices = prices.filter(p => p.product_type === 'CARPOOL' && p.route_id === routeId)
+    const capPrices = routePrices.filter(p => p.description === capacity)
+    const pFront = capPrices.find(p => p.seat_type === 'DEPAN' || p.seat_type === 'FRONT')
+    const pMid = capPrices.find(p => p.seat_type === 'TENGAH' || p.seat_type === 'MID')
+    const pBack = capPrices.find(p => p.seat_type === 'BELAKANG' || p.seat_type === 'BACK')
+
+    if (pFront || pMid || pBack) {
+      setPriceFront(pFront ? String(Number(pFront.base_price)) : '')
+      setPriceMid(pMid ? String(Number(pMid.base_price)) : '')
+      setPriceBack(pBack ? String(Number(pBack.base_price)) : '')
+      return
+    }
+
+    // Generic fallback if not configured per capacity yet
+    const genFront = routePrices.find(p => p.seat_type === 'DEPAN' || p.seat_type === 'FRONT')
+    const genMid = routePrices.find(p => p.seat_type === 'TENGAH' || p.seat_type === 'MID')
+    const genBack = routePrices.find(p => p.seat_type === 'BELAKANG' || p.seat_type === 'BACK')
+    if (genFront || genMid || genBack) {
+      setPriceFront(genFront ? String(Number(genFront.base_price)) : '')
+      setPriceMid(genMid ? String(Number(genMid.base_price)) : '')
+      setPriceBack(genBack ? String(Number(genBack.base_price)) : '')
+      return
+    }
+
+    // Numeric seat fallback
+    const p1 = routePrices.find(p => p.seat_type === '1')
+    const p2 = routePrices.find(p => p.seat_type === '2')
+    const pBackNum = routePrices.find(p => p.seat_type === '5' || p.seat_type === '6' || p.seat_type === '7')
+    setPriceFront(p1 ? String(Number(p1.base_price)) : '')
+    setPriceMid(p2 ? String(Number(p2.base_price)) : '')
+    setPriceBack(pBackNum ? String(Number(pBackNum.base_price)) : '')
+  }
+
+  const handleSelectSeatPriceRoute = (routeId: string) => {
+    setSelectedSeatPriceRouteId(routeId)
+    loadSeatPricesForRouteAndCapacity(routeId, selectedCarCapacity)
+  }
+
+  const handleSelectCarCapacity = (capacity: '3_SEATS' | '4_SEATS' | '5_SEATS' | '6_SEATS' | '7_SEATS') => {
+    setSelectedCarCapacity(capacity)
+    loadSeatPricesForRouteAndCapacity(selectedSeatPriceRouteId, capacity)
+  }
+
+  const handleSaveSeatPrices = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedSeatPriceRouteId) {
+      setError('Silakan pilih rute perjalanan terlebih dahulu')
+      return
+    }
+    if (!priceFront || !priceMid) {
+      setError('Harga kursi Depan dan Tengah wajib diisi')
+      return
+    }
+    const hasBackRow = selectedCarCapacity !== '3_SEATS' && selectedCarCapacity !== '4_SEATS'
+    if (hasBackRow && !priceBack) {
+      setError('Harga kursi Belakang wajib diisi untuk mobil berkapasitas 5, 6, atau 7 kursi')
+      return
+    }
+
+    setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
+
+    try {
+      const numFront = Number(priceFront)
+      const numMid = Number(priceMid)
+      const numBack = hasBackRow ? Number(priceBack) : 0
+
+      // Rows for position types (DEPAN, TENGAH, BELAKANG) tagged with capacity description
+      const rowPositions = [
+        { seat_type: 'DEPAN', base_price: numFront },
+        { seat_type: 'TENGAH', base_price: numMid },
+        ...(hasBackRow ? [{ seat_type: 'BELAKANG', base_price: numBack }] : [])
+      ]
+
+      // Also map to individual seat numbers for seamless compatibility
+      const seatCount = parseInt(selectedCarCapacity.split('_')[0]) || 6
+      const seatNumberMap: { seat_type: string; base_price: number }[] = []
+      for (let s = 1; s <= seatCount; s++) {
+        if (s === 1) {
+          seatNumberMap.push({ seat_type: String(s), base_price: numFront })
+        } else if (selectedCarCapacity === '3_SEATS' || selectedCarCapacity === '4_SEATS') {
+          seatNumberMap.push({ seat_type: String(s), base_price: numMid })
+        } else if (selectedCarCapacity === '5_SEATS') {
+          seatNumberMap.push({ seat_type: String(s), base_price: s <= 3 ? numMid : numBack })
+        } else if (selectedCarCapacity === '6_SEATS' || selectedCarCapacity === '7_SEATS') {
+          seatNumberMap.push({ seat_type: String(s), base_price: s <= 4 ? numMid : numBack })
+        }
+      }
+
+      // Delete existing records for this route & capacity
+      await supabase
+        .from('product_prices')
+        .delete()
+        .eq('product_type', 'CARPOOL')
+        .eq('route_id', selectedSeatPriceRouteId)
+        .eq('description', selectedCarCapacity)
+
+      const payload = [
+        ...rowPositions.map(r => ({
+          product_type: 'CARPOOL',
+          route_id: selectedSeatPriceRouteId,
+          seat_type: r.seat_type,
+          base_price: r.base_price,
+          description: selectedCarCapacity
+        })),
+        ...seatNumberMap.map(s => ({
+          product_type: 'CARPOOL',
+          route_id: selectedSeatPriceRouteId,
+          seat_type: s.seat_type,
+          base_price: s.base_price,
+          description: selectedCarCapacity
+        }))
+      ]
+
+      const { error: insertError } = await supabase.from('product_prices').insert(payload)
+      if (insertError) throw insertError
+
+      // Also ensure generic DEPAN, TENGAH, BELAKANG exist if none
+      const genericExisting = prices.filter(p => p.product_type === 'CARPOOL' && p.route_id === selectedSeatPriceRouteId && (!p.description || p.description === ''))
+      if (genericExisting.length === 0) {
+        await supabase.from('product_prices').insert([
+          { product_type: 'CARPOOL', route_id: selectedSeatPriceRouteId, seat_type: 'DEPAN', base_price: numFront, description: '' },
+          { product_type: 'CARPOOL', route_id: selectedSeatPriceRouteId, seat_type: 'TENGAH', base_price: numMid, description: '' },
+          ...(hasBackRow ? [{ product_type: 'CARPOOL', route_id: selectedSeatPriceRouteId, seat_type: 'BELAKANG', base_price: numBack, description: '' }] : [])
+        ])
+      }
+
+      const routeObj = routes.find(r => r.id === selectedSeatPriceRouteId)
+      setSuccessMsg(`Harga kursi untuk rute ${routeObj?.name || ''} (${selectedCarCapacity.replace('_', ' ')}) berhasil disimpan!`)
+      fetchData()
+    } catch (err: any) {
+      setError('Gagal menyimpan harga kursi: ' + err.message)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  const handleDeleteSeatPrices = async (routeId: string, capacity?: string) => {
+    if (!confirm('Hapus pengaturan harga kursi ini?')) return
+    setIsRefreshing(true)
+    setError('')
+    setSuccessMsg('')
+    try {
+      let query = supabase.from('product_prices').delete().eq('product_type', 'CARPOOL').eq('route_id', routeId)
+      if (capacity) {
+        query = query.eq('description', capacity)
+      }
+      const { error } = await query
+      if (error) throw error
+      setSuccessMsg('Pengaturan harga kursi berhasil dihapus!')
+      fetchData()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   // --- CARPOOL SCHEDULES LOGIC ---
+  // Auto-fill schedule front/mid/back prices when schedule route or car type changes
+  useEffect(() => {
+    if (!newSchedRouteId) return
+    const routePrices = prices.filter(p => p.product_type === 'CARPOOL' && p.route_id === newSchedRouteId)
+    const capPrices = routePrices.filter(p => p.description === newSchedCarType)
+    const pFront = capPrices.find(p => p.seat_type === 'DEPAN' || p.seat_type === 'FRONT') || routePrices.find(p => p.seat_type === 'DEPAN' || p.seat_type === 'FRONT') || routePrices.find(p => p.seat_type === '1')
+    const pMid = capPrices.find(p => p.seat_type === 'TENGAH' || p.seat_type === 'MID') || routePrices.find(p => p.seat_type === 'TENGAH' || p.seat_type === 'MID') || routePrices.find(p => p.seat_type === '2')
+    const pBack = capPrices.find(p => p.seat_type === 'BELAKANG' || p.seat_type === 'BACK') || routePrices.find(p => p.seat_type === 'BELAKANG' || p.seat_type === 'BACK') || routePrices.find(p => p.seat_type === '5' || p.seat_type === '6')
+
+    if (pFront) setSchedPriceFront(String(Number(pFront.base_price)))
+    if (pMid) setSchedPriceMid(String(Number(pMid.base_price)))
+    if (pBack) setSchedPriceBack(String(Number(pBack.base_price)))
+    if (pFront && !newSchedPrice) setNewSchedPrice(String(Number(pFront.base_price)))
+  }, [newSchedRouteId, newSchedCarType, prices])
+
   const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newSchedRouteId || !newSchedDate || !newSchedTime || !newSchedCarType || !newSchedPrice) return
+    if (!newSchedRouteId || !newSchedDate || !newSchedTime || !newSchedCarType) return
     setIsRefreshing(true)
     setError('')
     
-    // Build seat_prices JSON
-    let numSeats = parseInt(newSchedCarType.split('_')[0]) || 6
+    // Build seat_prices JSON using front, mid, and back prices
+    const numSeats = parseInt(newSchedCarType.split('_')[0]) || 6
+    const hasBack = newSchedCarType !== '3_SEATS' && newSchedCarType !== '4_SEATS'
+    const frontVal = Number(schedPriceFront) || Number(newSchedPrice) || 0
+    const midVal = Number(schedPriceMid) || Number(newSchedPrice) || 0
+    const backVal = hasBack ? (Number(schedPriceBack) || Number(newSchedPrice) || 0) : 0
+
     let seatPrices: any = {}
     for (let i = 1; i <= numSeats; i++) {
-      seatPrices[String(i)] = Number(newSchedPrice)
+      if (i === 1) {
+        seatPrices[String(i)] = frontVal
+      } else if (newSchedCarType === '3_SEATS' || newSchedCarType === '4_SEATS') {
+        seatPrices[String(i)] = midVal
+      } else if (newSchedCarType === '5_SEATS') {
+        seatPrices[String(i)] = i <= 3 ? midVal : backVal
+      } else if (newSchedCarType === '6_SEATS' || newSchedCarType === '7_SEATS') {
+        seatPrices[String(i)] = i <= 4 ? midVal : backVal
+      }
     }
 
     const { error } = await supabase.from('carpool_schedules').insert({
@@ -339,57 +545,6 @@ export default function Settings() {
       fetchData()
     } else {
       setError('Gagal menghapus jadwal: ' + error.message)
-    }
-  }
-
-  // --- CARPOOL PRICING LOGIC ---
-  const handleSaveCarpoolPrices = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedCarpoolRouteId) return setError('Pilih rute terlebih dahulu')
-    setIsRefreshing(true)
-    setError('')
-    setSuccessMsg('')
-
-    try {
-      const seatConfigs = [1, 2, 3, 4, 5, 6, 7].map(num => ({
-        seat_type: String(num), price: Number(carpoolPrices[String(num)])
-      }))
-
-      for (const config of seatConfigs) {
-        const existing = prices.find(p => p.product_type === 'CARPOOL' && p.route_id === selectedCarpoolRouteId && p.seat_type === config.seat_type)
-        if (existing) {
-          await supabase.from('product_prices').update({ base_price: config.price }).eq('id', existing.id)
-        } else {
-          await supabase.from('product_prices').insert({
-            product_type: 'CARPOOL',
-            route_id: selectedCarpoolRouteId,
-            seat_type: config.seat_type,
-            base_price: config.price
-          })
-        }
-      }
-
-      setSuccessMsg('Tarif travel reguler (carpooling) berhasil disimpan!')
-      fetchData()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
-
-  const handleDeleteCarpoolPrices = async (routeId: string) => {
-    if (!confirm('Hapus pengaturan harga travel reguler untuk rute ini?')) return
-    setIsRefreshing(true)
-    setError('')
-    setSuccessMsg('')
-    const { error } = await supabase.from('product_prices').delete().eq('product_type', 'CARPOOL').eq('route_id', routeId)
-    setIsRefreshing(false)
-    if (!error) {
-      setSuccessMsg('Harga travel reguler berhasil dihapus!')
-      fetchData()
-    } else {
-      setError(error.message)
     }
   }
 
@@ -624,17 +779,45 @@ export default function Settings() {
   const dalamKotaDepartureTimes = departureTimes.filter(d => !d.route_type || d.route_type === 'DALAM_KOTA')
   const luarKotaDepartureTimes = departureTimes.filter(d => d.route_type === 'LUAR_KOTA')
 
-  const carpoolPricesByRoute = routes.map(r => {
+  // Group saved seat prices by route and capacity for overview table
+  const savedSeatPricesList: any[] = []
+  routes.forEach(r => {
     const routePrices = prices.filter(p => p.product_type === 'CARPOOL' && p.route_id === r.id)
-    const seatPrices: Record<string, number> = {}
-    for (let i = 1; i <= 7; i++) {
-      const p = routePrices.find(rp => rp.seat_type === String(i))
-      seatPrices[String(i)] = p ? Number(p.base_price) : 0
-    }
-    return {
-      route: r,
-      prices: seatPrices,
-      hasPrices: routePrices.length > 0
+    const capacities = ['3_SEATS', '4_SEATS', '5_SEATS', '6_SEATS', '7_SEATS']
+    capacities.forEach(cap => {
+      const capPrices = routePrices.filter(p => p.description === cap)
+      const pFront = capPrices.find(p => p.seat_type === 'DEPAN' || p.seat_type === 'FRONT')
+      const pMid = capPrices.find(p => p.seat_type === 'TENGAH' || p.seat_type === 'MID')
+      const pBack = capPrices.find(p => p.seat_type === 'BELAKANG' || p.seat_type === 'BACK')
+      
+      if (pFront || pMid || pBack) {
+        savedSeatPricesList.push({
+          route: r,
+          capacity: cap,
+          priceFront: pFront ? Number(pFront.base_price) : 0,
+          priceMid: pMid ? Number(pMid.base_price) : 0,
+          priceBack: pBack ? Number(pBack.base_price) : 0
+        })
+      }
+    })
+
+    // Also check for legacy generic prices if not configured per capacity
+    const hasExplicit = savedSeatPricesList.some(s => s.route.id === r.id)
+    if (!hasExplicit && routePrices.length > 0) {
+      const genFront = routePrices.find(p => p.seat_type === 'DEPAN' || p.seat_type === 'FRONT') || routePrices.find(p => p.seat_type === '1')
+      const genMid = routePrices.find(p => p.seat_type === 'TENGAH' || p.seat_type === 'MID') || routePrices.find(p => p.seat_type === '2')
+      const genBack = routePrices.find(p => p.seat_type === 'BELAKANG' || p.seat_type === 'BACK') || routePrices.find(p => p.seat_type === '5' || p.seat_type === '6')
+
+      if (genFront || genMid || genBack) {
+        savedSeatPricesList.push({
+          route: r,
+          capacity: '6_SEATS',
+          isGeneric: true,
+          priceFront: genFront ? Number(genFront.base_price) : 0,
+          priceMid: genMid ? Number(genMid.base_price) : 0,
+          priceBack: genBack ? Number(genBack.base_price) : 0
+        })
+      }
     }
   })
 
@@ -643,7 +826,7 @@ export default function Settings() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Pengaturan Sistem Admin</h1>
-          <p className="text-sm text-gray-500 mt-1">Kelola Jam Pemberangkatan, Harga Travel Reguler, Sewa Mobil, Kiriman Barang, Bandara, Rute, & Pembayaran</p>
+          <p className="text-sm text-gray-500 mt-1">Kelola Jam Pemberangkatan, Harga Kursi Travel, Jadwal Armada, Sewa Mobil, Kiriman Barang, Bandara, Rute, & Pembayaran</p>
         </div>
         <button 
           onClick={fetchData}
@@ -665,6 +848,13 @@ export default function Settings() {
         >
           <SettingsIcon size={18} />
           <span>Pengaturan Global</span>
+        </button>
+        <button
+          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'SEAT_PRICES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('SEAT_PRICES')}
+        >
+          <Armchair size={18} />
+          <span>Harga Kursi</span>
         </button>
         <button
           className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'CARPOOL' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
@@ -713,6 +903,7 @@ export default function Settings() {
           onClick={() => setActiveTab('QRIS')}
         >
           <QrCode size={18} />
+          <span>QRIS</span>
         </button>
       </div>
 
@@ -802,6 +993,313 @@ export default function Settings() {
       )}
 
       
+      {/* TAB 2: HARGA KURSI */}
+      {activeTab === 'SEAT_PRICES' && (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {/* FORM PENGATURAN HARGA KURSI */}
+          <div className="xl:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit space-y-5">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800 flex items-center">
+                <Armchair size={22} className="mr-2 text-primary"/> Pengaturan Harga Kursi
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Atur tarif travel reguler berdasarkan rute, kapasitas jumlah kursi, dan posisi tempat duduk.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveSeatPrices} className="space-y-5">
+              {/* 1. PILIH RUTE */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1.5 flex items-center">
+                  <Map size={14} className="mr-1.5 text-primary"/> 1. Pilih Rute
+                </label>
+                <select 
+                  required 
+                  value={selectedSeatPriceRouteId} 
+                  onChange={e => handleSelectSeatPriceRoute(e.target.value)} 
+                  className="w-full border border-gray-300 rounded-xl p-3 text-sm focus:border-primary focus:ring-2 focus:ring-blue-100 outline-none font-bold bg-white text-gray-800 transition shadow-sm"
+                >
+                  <option value="" disabled>-- Pilih Rute --</option>
+                  {routes.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} ({r.route_type === 'DALAM_KOTA' ? 'Dalam Daerah' : 'Luar Daerah'})
+                    </option>
+                  ))}
+                </select>
+                {selectedSeatPriceRouteId && (
+                  <div className="mt-1.5 text-xs text-blue-600 font-semibold flex items-center">
+                    <Check size={12} className="mr-1"/> Rute: {routes.find(r => r.id === selectedSeatPriceRouteId)?.name}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. PILIH JUMLAH KURSI */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2 flex items-center">
+                  <Users size={14} className="mr-1.5 text-primary"/> 2. Pilih Jumlah Kursi
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: '3_SEATS', label: 'Kursi 3', desc: '1 Depan, 2 Tengah' },
+                    { id: '4_SEATS', label: 'Kursi 4', desc: '1 Depan, 3 Tengah' },
+                    { id: '5_SEATS', label: 'Kursi 5', desc: '1 Depan, 2 Tengah, 2 Blkg' },
+                    { id: '6_SEATS', label: 'Kursi 6', desc: '1 Depan, 3 Tengah, 2 Blkg' },
+                    { id: '7_SEATS', label: 'Kursi 7', desc: '1 Depan, 3 Tengah, 3 Blkg' },
+                  ].map(cap => (
+                    <button
+                      type="button"
+                      key={cap.id}
+                      onClick={() => handleSelectCarCapacity(cap.id as any)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${selectedCarCapacity === cap.id ? 'border-primary bg-blue-50/80 shadow-sm ring-2 ring-primary/20' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className={`text-xs font-black ${selectedCarCapacity === cap.id ? 'text-primary' : 'text-gray-800'}`}>
+                          {cap.label}
+                        </span>
+                        {selectedCarCapacity === cap.id && <Check size={14} className="text-primary"/>}
+                      </div>
+                      <span className="text-[10px] text-gray-500 mt-1 leading-tight">{cap.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. HARGA KURSI */}
+              <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-3.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide flex items-center">
+                  <Armchair size={14} className="mr-1.5 text-primary"/> 3. Harga Kursi
+                </label>
+
+                {/* Depan */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-gray-700">Depan</label>
+                    <span className="text-[10px] text-gray-500">Kursi 1 (Samping Supir)</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 text-xs font-bold text-gray-500">Rp</span>
+                    <input 
+                      required
+                      type="number"
+                      value={priceFront}
+                      onChange={e => setPriceFront(e.target.value)}
+                      placeholder="Contoh: 80000"
+                      className="w-full border border-gray-300 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold focus:border-primary outline-none bg-white text-gray-800"
+                    />
+                  </div>
+                </div>
+
+                {/* Tengah */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-gray-700">Tengah</label>
+                    <span className="text-[10px] text-gray-500">
+                      {selectedCarCapacity === '3_SEATS' || selectedCarCapacity === '5_SEATS' ? 'Kursi 2, 3' : 'Kursi 2, 3, 4'}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 text-xs font-bold text-gray-500">Rp</span>
+                    <input 
+                      required
+                      type="number"
+                      value={priceMid}
+                      onChange={e => setPriceMid(e.target.value)}
+                      placeholder="Contoh: 70000"
+                      className="w-full border border-gray-300 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold focus:border-primary outline-none bg-white text-gray-800"
+                    />
+                  </div>
+                </div>
+
+                {/* Belakang */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className={`text-xs font-bold ${selectedCarCapacity === '3_SEATS' || selectedCarCapacity === '4_SEATS' ? 'text-gray-400' : 'text-gray-700'}`}>
+                      Belakang
+                    </label>
+                    <span className="text-[10px] text-gray-400">
+                      {selectedCarCapacity === '5_SEATS' ? 'Kursi 4, 5' : selectedCarCapacity === '6_SEATS' ? 'Kursi 5, 6' : selectedCarCapacity === '7_SEATS' ? 'Kursi 5, 6, 7' : '(Tidak ada)'}
+                    </span>
+                  </div>
+                  {selectedCarCapacity === '3_SEATS' || selectedCarCapacity === '4_SEATS' ? (
+                    <div className="w-full border border-dashed border-gray-300 rounded-xl py-2.5 px-3 text-xs text-gray-400 bg-gray-100 font-medium italic">
+                      Mobil {selectedCarCapacity.replace('_', ' ')} tidak memiliki baris belakang
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-2.5 text-xs font-bold text-gray-500">Rp</span>
+                      <input 
+                        required
+                        type="number"
+                        value={priceBack}
+                        onChange={e => setPriceBack(e.target.value)}
+                        placeholder="Contoh: 60000"
+                        className="w-full border border-gray-300 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold focus:border-primary outline-none bg-white text-gray-800"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* VISUAL CAR CABIN PREVIEW */}
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center">
+                    <CarFront size={14} className="mr-1 text-primary"/> Preview Tata Letak & Tarif Kursi
+                  </span>
+                  <span className="text-[10px] font-extrabold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                    {selectedCarCapacity.replace('_', ' ')}
+                  </span>
+                </div>
+
+                <div className="space-y-2.5 max-w-[280px] mx-auto bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm text-center">
+                  {/* Baris 1: Depan */}
+                  <div className="flex justify-between items-center border-b border-dashed pb-2">
+                    <div className="flex-1 bg-blue-50 border border-blue-200 p-2 rounded-lg text-left">
+                      <div className="text-[10px] font-bold text-primary">K1 (Depan)</div>
+                      <div className="text-xs font-black text-gray-800">
+                        {priceFront ? `Rp ${Number(priceFront).toLocaleString('id-ID')}` : '-'}
+                      </div>
+                    </div>
+                    <div className="w-12 ml-2 bg-gray-100 border border-gray-200 p-2 rounded-lg text-[10px] font-bold text-gray-400 text-center">
+                      Sopir
+                    </div>
+                  </div>
+
+                  {/* Baris 2: Tengah */}
+                  <div className="bg-amber-50 border border-amber-200 p-2 rounded-lg text-center">
+                    <div className="text-[10px] font-bold text-amber-800">
+                      Baris Tengah ({selectedCarCapacity === '3_SEATS' || selectedCarCapacity === '5_SEATS' ? '2 Kursi' : '3 Kursi'})
+                    </div>
+                    <div className="text-xs font-black text-gray-800 mt-0.5">
+                      {priceMid ? `Rp ${Number(priceMid).toLocaleString('id-ID')}` : '-'} / kursi
+                    </div>
+                  </div>
+
+                  {/* Baris 3: Belakang */}
+                  {selectedCarCapacity !== '3_SEATS' && selectedCarCapacity !== '4_SEATS' ? (
+                    <div className="bg-purple-50 border border-purple-200 p-2 rounded-lg text-center">
+                      <div className="text-[10px] font-bold text-purple-800">
+                        Baris Belakang ({selectedCarCapacity === '7_SEATS' ? '3 Kursi' : '2 Kursi'})
+                      </div>
+                      <div className="text-xs font-black text-gray-800 mt-0.5">
+                        {priceBack ? `Rp ${Number(priceBack).toLocaleString('id-ID')}` : '-'} / kursi
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-gray-400 italic py-1">
+                      (Tidak ada baris belakang)
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button 
+                disabled={isRefreshing || !selectedSeatPriceRouteId} 
+                type="submit" 
+                className="w-full bg-gray-900 text-white font-bold rounded-xl py-3.5 hover:bg-black transition active:scale-95 disabled:opacity-50 flex items-center justify-center space-x-2 shadow-lg shadow-gray-900/10"
+              >
+                <Check size={18} />
+                <span>Simpan Pengaturan Harga Kursi</span>
+              </button>
+            </form>
+          </div>
+
+          {/* DAFTAR TARIF KURSI TERSIMPAN */}
+          <div className="xl:col-span-7 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-fit">
+            <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">Daftar Pengaturan Harga Kursi per Rute</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Tarif yang aktif digunakan saat penumpang memesan travel reguler</p>
+              </div>
+              <span className="text-xs font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-full w-fit">
+                {savedSeatPricesList.length} Pengaturan Aktif
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-5 py-3.5 text-left text-xs font-bold uppercase text-gray-500">Rute & Tipe</th>
+                    <th className="px-5 py-3.5 text-left text-xs font-bold uppercase text-gray-500">Kapasitas</th>
+                    <th className="px-5 py-3.5 text-left text-xs font-bold uppercase text-gray-500">Tarif Posisi Kursi</th>
+                    <th className="px-5 py-3.5 text-right text-xs font-bold uppercase text-gray-500">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {savedSeatPricesList.map((item, idx) => (
+                    <tr key={`${item.route.id}_${item.capacity}_${idx}`} className="hover:bg-gray-50/60 transition">
+                      <td className="px-5 py-4">
+                        <div className="font-bold text-gray-900 text-sm">{item.route.name}</div>
+                        <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.route.route_type === 'DALAM_KOTA' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {item.route.route_type === 'DALAM_KOTA' ? 'Dalam Daerah' : 'Luar Daerah'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-black bg-gray-100 text-gray-800">
+                          {item.capacity.split('_')[0]} Kursi
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="space-y-1 text-xs">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-[10px] font-extrabold uppercase bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Depan</span>
+                            <span className="font-bold text-gray-800">Rp {item.priceFront.toLocaleString('id-ID')}</span>
+                          </div>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-[10px] font-extrabold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">Tengah</span>
+                            <span className="font-bold text-gray-800">Rp {item.priceMid.toLocaleString('id-ID')}</span>
+                          </div>
+                          {item.capacity !== '3_SEATS' && item.capacity !== '4_SEATS' && item.priceBack > 0 && (
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] font-extrabold uppercase bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded">Belakang</span>
+                              <span className="font-bold text-gray-800">Rp {item.priceBack.toLocaleString('id-ID')}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSeatPriceRouteId(item.route.id)
+                              setSelectedCarCapacity(item.capacity)
+                              setPriceFront(String(item.priceFront))
+                              setPriceMid(String(item.priceMid))
+                              setPriceBack(item.priceBack ? String(item.priceBack) : '')
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                            title="Edit Tarif"
+                          >
+                            <Edit2 size={16}/>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSeatPrices(item.route.id, item.capacity)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                            title="Hapus Tarif"
+                          >
+                            <Trash2 size={16}/>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {savedSeatPricesList.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-10 text-gray-400 font-medium">
+                        Belum ada pengaturan harga kursi. Silakan atur menggunakan formulir di sebelah kiri.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TAB CARPOOL SCHEDULES */}
       {activeTab === 'CARPOOL' && (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -842,9 +1340,50 @@ export default function Settings() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Harga Per Kursi (Rp)</label>
-                <input required type="number" value={newSchedPrice} onChange={e => setNewSchedPrice(e.target.value)} placeholder="Contoh: 70000" className="mt-1 w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:border-primary outline-none font-bold" />
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+                <label className="text-xs font-bold text-gray-700 uppercase flex items-center justify-between">
+                  <span>Tarif Kursi Armada</span>
+                  <span className="text-[10px] text-primary font-normal">Otomatis dari Harga Kursi</span>
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Kursi Depan (Rp)</label>
+                    <input 
+                      required 
+                      type="number" 
+                      value={schedPriceFront} 
+                      onChange={e => setSchedPriceFront(e.target.value)} 
+                      placeholder="Contoh: 80000" 
+                      className="mt-0.5 w-full border border-gray-300 rounded-lg p-2 text-xs focus:border-primary outline-none font-bold bg-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Kursi Tengah (Rp)</label>
+                    <input 
+                      required 
+                      type="number" 
+                      value={schedPriceMid} 
+                      onChange={e => setSchedPriceMid(e.target.value)} 
+                      placeholder="Contoh: 70000" 
+                      className="mt-0.5 w-full border border-gray-300 rounded-lg p-2 text-xs focus:border-primary outline-none font-bold bg-white" 
+                    />
+                  </div>
+                </div>
+
+                {newSchedCarType !== '3_SEATS' && newSchedCarType !== '4_SEATS' && (
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Kursi Belakang (Rp)</label>
+                    <input 
+                      required 
+                      type="number" 
+                      value={schedPriceBack} 
+                      onChange={e => setSchedPriceBack(e.target.value)} 
+                      placeholder="Contoh: 60000" 
+                      className="mt-0.5 w-full border border-gray-300 rounded-lg p-2 text-xs focus:border-primary outline-none font-bold bg-white" 
+                    />
+                  </div>
+                )}
               </div>
 
               <button disabled={isRefreshing} type="submit" className="w-full bg-gray-900 text-white font-bold rounded-xl py-3 hover:bg-black transition active:scale-95 disabled:opacity-50">
@@ -862,7 +1401,7 @@ export default function Settings() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Jadwal & Rute</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Mobil & Harga</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold uppercase text-gray-500">Mobil & Tarif Kursi</th>
                     <th className="px-6 py-4 text-right text-xs font-bold uppercase text-gray-500">Aksi</th>
                   </tr>
                 </thead>
@@ -875,7 +1414,11 @@ export default function Settings() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-bold text-blue-600">{sched.car_type.split('_')[0]} Kursi</div>
-                        <div className="text-sm font-semibold text-gray-700 mt-1">Rp {Number(sched.seat_prices['1'] || 0).toLocaleString('id-ID')} / kursi</div>
+                        <div className="text-xs font-semibold text-gray-700 mt-1 space-x-1.5">
+                          <span>Depan: Rp {Number(sched.seat_prices?.['1'] || 0).toLocaleString('id-ID')}</span>
+                          <span>• Tengah: Rp {Number(sched.seat_prices?.['2'] || 0).toLocaleString('id-ID')}</span>
+                          {sched.seat_prices?.['5'] && <span>• Belakang: Rp {Number(sched.seat_prices?.['5'] || 0).toLocaleString('id-ID')}</span>}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button onClick={() => handleDeleteSchedule(sched.id)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition" title="Hapus Jadwal"><Trash2 size={18}/></button>
