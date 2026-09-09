@@ -347,11 +347,11 @@ export default function Orders() {
                       <span>Chat Sopir</span>
                     </button>
                     <button 
-                      onClick={() => navigate(`/call/${order.id}`, { state: { isCaller: true } })}
+                      onClick={() => window.open('https://wa.me/6281234567890?text=Halo%20Admin%20AnindiraTrans,%20saya%20butuh%20bantuan%20terkait%20pesanan%20saya.', '_blank')}
                       className="flex-1 flex items-center justify-center space-x-2 rounded-xl bg-green-50 py-2.5 text-sm font-bold text-green-600 transition active:scale-95 border border-green-200"
                     >
                       <Phone size={18} />
-                      <span>Telepon</span>
+                      <span>Hubungi CS</span>
                     </button>
                   </div>
                 )}

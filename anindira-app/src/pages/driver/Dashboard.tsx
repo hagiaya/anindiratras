@@ -19,26 +19,20 @@ export default function DriverDashboard() {
   const totalTrips = history.length
 
   const handleCall = async (order: any) => {
-    if (localStorage.getItem('demo_mode')) {
-      await supabase.channel('demo_calls').send({
-        type: 'broadcast',
-        event: 'incoming_call',
-        payload: { callerName: 'Sopir Budi (Demo)', roomId: order.id }
-      })
-      navigate(`/call/${order.id}`, { state: { isCaller: true } })
+    const phone = order.users?.phone
+    if (!phone || phone === 'Pelanggan') {
+      alert('Nomor telepon penumpang tidak tersedia.')
       return
     }
-
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session) {
-      const myName = session.user.user_metadata?.full_name || 'Sopir'
-      await supabase.channel(`user_${order.user_id}`).send({
-        type: 'broadcast',
-        event: 'incoming_call',
-        payload: { callerName: myName, roomId: order.id }
-      })
+    
+    // Format phone number to replace leading 0 with 62
+    let formattedPhone = phone
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '62' + formattedPhone.slice(1)
     }
-    navigate(`/call/${order.id}`, { state: { isCaller: true } })
+    
+    // Buka WhatsApp langsung
+    window.open(`https://wa.me/${formattedPhone}?text=Halo%20penumpang%20AnindiraTrans,%20saya%20sopir%20Anda.`, '_blank')
   }
 
   useEffect(() => {

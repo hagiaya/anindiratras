@@ -42,6 +42,8 @@ export default function Rental() {
   const [promoError, setPromoError] = useState('')
   const [promoSuccess, setPromoSuccess] = useState('')
 
+  const [departureTimes, setDepartureTimes] = useState<any[]>([])
+
   // Fetch dynamic cars configured by Admin in database
   useEffect(() => {
     const fetchCars = async () => {
@@ -75,7 +77,14 @@ export default function Rental() {
         setDynamicCars(fetchedCars)
       }
     }
+    
+    const fetchDepartureTimes = async () => {
+      const { data } = await supabase.from('departure_times').select('*').order('time_string', { ascending: true })
+      if (data) setDepartureTimes(data)
+    }
+    
     fetchCars()
+    fetchDepartureTimes()
   }, [])
 
   const selectedCarObj = dynamicCars.find(c => c.id === selectedCarId)
@@ -401,12 +410,16 @@ export default function Rental() {
                   <div className="flex-1">
                     <label className="text-xs font-semibold text-gray-500">Jam Pemakaian</label>
                     <div className="flex items-center space-x-2 border-b-2 border-gray-100 pb-2 mt-1 focus-within:border-purple-500 transition-colors">
-                      <input
-                        type="time"
+                      <select
                         value={pickupTime}
                         onChange={e => setPickupTime(e.target.value)}
-                        className="w-full font-bold text-gray-800 focus:outline-none bg-transparent"
-                      />
+                        className="w-full font-bold text-gray-800 focus:outline-none bg-transparent appearance-none"
+                      >
+                        <option value="" disabled>Pilih Jam</option>
+                        {departureTimes.filter(dt => !dt.route_type || dt.route_type === areaType).map(dt => (
+                          <option key={dt.id} value={dt.time_string}>{dt.time_string} WIB</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
