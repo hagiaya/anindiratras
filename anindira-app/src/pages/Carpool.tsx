@@ -40,8 +40,6 @@ export default function Carpool() {
   const [availableExtraPrices, setAvailableExtraPrices] = useState<any[]>([])
   const [selectedExtraPrice, setSelectedExtraPrice] = useState<any>(null)
 
-  const [seatFacilities, setSeatFacilities] = useState<{ [key: string]: string }>({})
-
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'ANINDIRAPAY'>('CASH')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -159,18 +157,8 @@ export default function Carpool() {
       if (data) setAvailableExtraPrices(data)
     }
 
-    const fetchFacilities = async () => {
-      const { data } = await supabase.from('product_prices').select('seat_type').eq('product_type', 'SETTING').eq('description', 'SEAT_FACILITIES').maybeSingle()
-      if (data && data.seat_type) {
-        try {
-          setSeatFacilities(JSON.parse(data.seat_type))
-        } catch(e) {}
-      }
-    }
-
     fetchRoutes()
     fetchExtraPrices()
-    fetchFacilities()
   }, [])
 
   useEffect(() => {
@@ -583,17 +571,17 @@ export default function Carpool() {
 
             {renderSeatMap()}
 
-            {selectedSeats.some(seatNum => seatFacilities[String(seatNum)]) && (
+            {selectedSeats.some(seatNum => seatNum === 3 || seatNum === 5) && (
               <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Fasilitas Kursi Terpilih</h3>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Fasilitas Tambahan</h3>
                 <div className="space-y-2">
-                  {selectedSeats.map(seatNum => seatFacilities[String(seatNum)] ? (
+                  {selectedSeats.map(seatNum => (seatNum === 3 || seatNum === 5) ? (
                     <div key={seatNum} className="flex items-start space-x-3 text-sm">
                       <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 font-bold shrink-0">
                         {seatNum}
                       </div>
                       <div className="flex-1 pt-1.5 font-medium text-gray-700">
-                        {seatFacilities[String(seatNum)]}
+                        Full AC
                       </div>
                     </div>
                   ) : null)}

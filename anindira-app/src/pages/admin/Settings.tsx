@@ -17,12 +17,6 @@ export default function Settings() {
   const [soundFile, setSoundFile] = useState<File | null>(null)
   const [, setIsUploadingSound] = useState(false)
 
-  // Seat Facilities Setting
-  const [seatFacilities, setSeatFacilities] = useState<{ [key: string]: string }>({
-    '1': '', '2': '', '3': '', '4': '', '5': '', '6': '', '7': ''
-  })
-  const [seatFacilitySettingId, setSeatFacilitySettingId] = useState<string | null>(null)
-
   // Seat Pricing State (Rute, Jumlah Kursi, Posisi Depan, Tengah, Belakang)
   const [selectedSeatPriceRouteId, setSelectedSeatPriceRouteId] = useState('')
   const [selectedCarCapacity, setSelectedCarCapacity] = useState<'3_SEATS' | '4_SEATS' | '5_SEATS' | '6_SEATS' | '7_SEATS'>('6_SEATS')
@@ -178,15 +172,6 @@ export default function Settings() {
         if (aKmKecil) setAirportKmKecil(Number(aKmKecil.base_price))
         if (aBaseBesar) setAirportBaseBesar(Number(aBaseBesar.base_price))
         if (aKmBesar) setAirportKmBesar(Number(aKmBesar.base_price))
-        
-        // Parse Seat Facilities
-        const pSeatFacilities = pricesData.find(p => p.product_type === 'SETTING' && p.description === 'SEAT_FACILITIES')
-        if (pSeatFacilities && pSeatFacilities.seat_type) {
-          try {
-            setSeatFacilities(JSON.parse(pSeatFacilities.seat_type))
-            setSeatFacilitySettingId(pSeatFacilities.id)
-          } catch(e) {}
-        }
       }
 
       // Fetch banks
@@ -252,35 +237,6 @@ export default function Settings() {
       fetchData()
     } catch (err: any) {
       setError(err.message)
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
-
-  // --- SEAT FACILITIES SETTINGS ---
-  const handleSaveSeatFacilities = async () => {
-    setIsRefreshing(true)
-    setError('')
-    setSuccessMsg('')
-    try {
-      if (seatFacilitySettingId) {
-        const { error } = await supabase.from('product_prices').update({
-          seat_type: JSON.stringify(seatFacilities)
-        }).eq('id', seatFacilitySettingId)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('product_prices').insert({
-          product_type: 'SETTING',
-          description: 'SEAT_FACILITIES',
-          seat_type: JSON.stringify(seatFacilities),
-          base_price: 0
-        })
-        if (error) throw error
-      }
-      setSuccessMsg('Fasilitas kursi berhasil disimpan!')
-      fetchData()
-    } catch (err: any) {
-      setError('Gagal menyimpan fasilitas kursi: ' + err.message)
     } finally {
       setIsRefreshing(false)
     }
@@ -894,13 +850,6 @@ export default function Settings() {
           <span>Pengaturan Global</span>
         </button>
         <button
-          className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'SEAT_FACILITIES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('SEAT_FACILITIES')}
-        >
-          <Armchair size={18} />
-          <span>Fasilitas Kursi</span>
-        </button>
-        <button
           className={`flex items-center space-x-2 px-4 py-3 font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'SEAT_PRICES' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('SEAT_PRICES')}
         >
@@ -1038,43 +987,6 @@ export default function Settings() {
                 </div>
               ))}
               {extraPrices.length === 0 && <span className="text-sm text-gray-400">Belum ada harga tambahan jarak jauh.</span>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: FASILITAS KURSI */}
-      {activeTab === 'SEAT_FACILITIES' && (
-        <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-              <Armchair className="mr-2 text-primary" /> Pengaturan Fasilitas Tambahan Kursi
-            </h2>
-            <p className="text-sm text-gray-500 mb-6">Tambahkan label fasilitas untuk masing-masing nomor kursi (misal: "Full AC", "Lebih Luas", "Samping Sopir"). Label ini akan muncul di bawah pilihan kursi di halaman pemesanan Carpool saat kursi tersebut dipilih penumpang.</p>
-            
-            <div className="space-y-4">
-              {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                <div key={num} className="flex items-center space-x-4">
-                  <div className="w-20 font-bold text-gray-700">Kursi {num}</div>
-                  <input
-                    type="text"
-                    placeholder={`Fasilitas Kursi ${num} (Opsional)`}
-                    value={seatFacilities[String(num)] || ''}
-                    onChange={(e) => setSeatFacilities({...seatFacilities, [String(num)]: e.target.value})}
-                    className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:border-primary outline-none"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-8 flex justify-end">
-              <button 
-                onClick={handleSaveSeatFacilities}
-                disabled={isRefreshing}
-                className="bg-primary hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl transition active:scale-95 disabled:opacity-50"
-              >
-                {isRefreshing ? 'Menyimpan...' : 'Simpan Fasilitas Kursi'}
-              </button>
             </div>
           </div>
         </div>
