@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Send, Phone } from 'lucide-react'
+import { ArrowLeft, Send, Phone, PhoneCall, MessageSquare, X } from 'lucide-react'
+import { playNotificationSound } from '../lib/audioNotification'
 
 export default function Chat() {
   const { roomId } = useParams()
@@ -11,41 +12,92 @@ export default function Chat() {
   const [messages, setMessages] = useState<any[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [receiverId, setReceiverId] = useState<string | null>(null)
+  const [receiverName, setReceiverName] = useState<string>('Pesan')
+  const [receiverPhone, setReceiverPhone] = useState<string>('')
   const [orderInfo, setOrderInfo] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [showCallModal, setShowCallModal] = useState(false)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const roomChannelRef = useRef<any>(null)
 
   useEffect(() => {
     checkSessionAndFetch()
   }, [roomId])
 
+  // Setup Realtime: Dual Broadcast (instant <50ms) + Postgres Changes
   useEffect(() => {
-    if (!session || !roomId) return;
+    if (!session || !roomId) return
 
     let filterString = `order_id=eq.${roomId}`
     if (roomId === 'cs') {
       filterString = `receiver_id=eq.${session.user.id}`
     }
 
-    const channelName = `chat_${roomId}_${session.user.id}_${Date.now()}`
-    const channel = supabase
-      .channel(channelName)
+    const channelRoomName = `room_chat_${roomId}`
+    const roomChannel = supabase.channel(channelRoomName)
+    roomChannelRef.current = roomChannel
+
+    roomChannel
+      .on('broadcast', { event: 'chat_msg' }, ({ payload }) => {
+        if (payload && payload.sender_id !== session.user.id) {
+          playNotificationSound()
+          setMessages((prev) => {
+            if (prev.some(m => m.id === payload.id || (m.sender_id === payload.sender_id && m.message === payload.message && Math.abs(new Date(m.created_at).getTime() - new Date(payload.created_at).getTime()) < 4000))) {
+              return prev
+            }
+            return [...prev, payload]
+          })
+        }
+      })
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chats', filter: filterString },
         (payload) => {
-          if (roomId === 'cs' && payload.new.order_id !== null) return;
+          if (roomId === 'cs' && payload.new.order_id !== null) return
+          if (payload.new.sender_id !== session.user.id) {
+            playNotificationSound()
+          }
           setMessages((prev) => {
-            if (prev.some(m => m.id === payload.new.id)) return prev;
+            if (prev.some(m => m.id === payload.new.id || (m.sender_id === payload.new.sender_id && m.message === payload.new.message && Math.abs(new Date(m.created_at).getTime() - new Date(payload.new.created_at).getTime()) < 4000))) {
+              // Replace temporary id with confirmed id
+              return prev.map(m => (m.message === payload.new.message && m.sender_id === payload.new.sender_id) ? payload.new : m)
+            }
             return [...prev, payload.new]
           })
         }
       )
       .subscribe()
 
+    // Safety polling every 4 seconds to ensure no messages are ever lost
+    const pollInterval = setInterval(async () => {
+      try {
+        if (roomId === 'cs') {
+          const { data } = await supabase
+            .from('chats')
+            .select('*')
+            .is('order_id', null)
+            .or(`sender_id.eq.${session.user.id},receiver_id.eq.${session.user.id}`)
+            .order('created_at', { ascending: true })
+          if (data && data.length > 0) {
+            setMessages(data)
+          }
+        } else {
+          const { data } = await supabase
+            .from('chats')
+            .select('*')
+            .eq('order_id', roomId)
+            .order('created_at', { ascending: true })
+          if (data && data.length > 0) {
+            setMessages(data)
+          }
+        }
+      } catch (_e) {}
+    }, 4000)
+
     return () => {
-      supabase.removeChannel(channel)
+      clearInterval(pollInterval)
+      supabase.removeChannel(roomChannel)
     }
   }, [roomId, session])
 
@@ -64,6 +116,8 @@ export default function Chat() {
       if (demoMode) {
         setSession({ user: { id: 'demo-user-id', user_metadata: { role: demoMode } } })
         setReceiverId('demo-receiver-id')
+        setReceiverName('Sopir (Demo)')
+        setReceiverPhone('081234567890')
         setMessages([
           { id: '1', sender_id: 'demo-receiver-id', message: 'Halo, saya sedang menuju lokasi.', created_at: new Date(Date.now() - 60000).toISOString() },
           { id: '2', sender_id: 'demo-user-id', message: 'Baik, terima kasih.', created_at: new Date().toISOString() }
@@ -72,21 +126,7 @@ export default function Chat() {
         return
       }
 
-      // Add timeout to prevent hanging on getSession
-      const getSessionPromise = supabase.auth.getSession()
-      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 5000))
-      const sessionResult: any = await Promise.race([getSessionPromise, timeoutPromise])
-
-      if (sessionResult.timeout) {
-         console.warn("Session fetch timeout")
-      }
-
-      let currentSession = sessionResult?.data?.session
-      
-      // Fallback for demo admin bypass
-      if (!currentSession && localStorage.getItem('demo_admin') === 'true') {
-         currentSession = { user: { id: 'admin-dev', user_metadata: { role: 'ADMIN' } } }
-      }
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
 
       if (!currentSession) {
         navigate('/login')
@@ -96,6 +136,11 @@ export default function Chat() {
 
       if (roomId === 'cs') {
         setReceiverId('admin')
+        setReceiverName('Customer Service Anindira')
+        
+        // Fetch outlet phone for CS
+        const { data: outletData } = await supabase.from('outlets').select('phone, name').eq('is_active', true).limit(1).maybeSingle()
+        if (outletData?.phone) setReceiverPhone(outletData.phone)
         
         const { data: chatData } = await supabase
           .from('chats')
@@ -108,16 +153,24 @@ export default function Chat() {
       } else if (roomId) {
         // Fetch order details to determine receiver
         const { data: orderData } = await supabase.from('orders').select('user_id, driver_id').eq('id', roomId).single()
-        console.log("Chat orderData:", orderData);
         if (orderData) {
           setOrderInfo(orderData)
+          let targetId = null
           if (currentSession.user.id === orderData.user_id) {
-            setReceiverId(orderData.driver_id)
+            targetId = orderData.driver_id
           } else if (currentSession.user.id === orderData.driver_id) {
-            setReceiverId(orderData.user_id)
+            targetId = orderData.user_id
           } else if (currentSession.user.user_metadata?.role === 'ADMIN') {
-            // Default receiver for Admin is Driver if assigned, else User
-            setReceiverId(orderData.driver_id || orderData.user_id)
+            targetId = orderData.driver_id || orderData.user_id
+          }
+          setReceiverId(targetId)
+
+          if (targetId) {
+            const { data: userData } = await supabase.from('users').select('full_name, phone, role').eq('id', targetId).maybeSingle()
+            if (userData) {
+              setReceiverName(userData.full_name || (userData.role === 'DRIVER' ? 'Sopir' : 'Penumpang'))
+              if (userData.phone) setReceiverPhone(userData.phone)
+            }
           }
         }
 
@@ -141,29 +194,44 @@ export default function Chat() {
     e.preventDefault()
     if (!newMessage.trim() || !session) return
 
-    const msgText = newMessage
+    const msgText = newMessage.trim()
     setNewMessage('')
 
-    if (localStorage.getItem('demo_mode')) {
-      setMessages([...messages, { 
-        id: Math.random().toString(), 
-        sender_id: session.user.id, 
-        message: msgText, 
-        created_at: new Date().toISOString() 
-      }])
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+    const newMsgObj = {
+      id: tempId,
+      order_id: roomId === 'cs' ? null : roomId,
+      sender_id: session.user.id,
+      receiver_id: receiverId,
+      message: msgText,
+      created_at: new Date().toISOString()
+    }
+
+    // 1. Optimistically display in sender UI immediately (<1ms)
+    setMessages((prev) => [...prev, newMsgObj])
+
+    // 2. Broadcast immediately over WebSocket (<50ms delivery to receiver)
+    if (roomChannelRef.current) {
+      roomChannelRef.current.send({
+        type: 'broadcast',
+        event: 'chat_msg',
+        payload: newMsgObj
+      }).catch((e: any) => console.warn('Broadcast send notice:', e))
+    }
+
+    if (localStorage.getItem('demo_mode')) return
+
+    if (!roomId) {
+      alert("Error: Room ID tidak valid.")
       return
     }
 
-    if (!roomId) {
-      alert("Error: Room ID tidak valid.");
-      return;
-    }
-
     if (!receiverId) {
-      alert("Error: Tidak dapat menemukan penerima chat (Driver belum ditugaskan).");
-      return;
+      alert("Error: Sopir belum ditugaskan untuk pesanan ini.")
+      return
     }
 
+    // 3. Persist to Supabase Database
     const { error } = await supabase.from('chats').insert({
       order_id: roomId === 'cs' ? null : roomId,
       sender_id: session.user.id,
@@ -172,30 +240,25 @@ export default function Chat() {
     })
 
     if (error) {
-      console.error("Gagal mengirim pesan:", error);
-      alert(`Gagal mengirim pesan: ${error.message}`);
-    } else {
-      // Optimistically add to UI to ensure it appears instantly
-      const newMsg = {
-        id: Date.now().toString(), // temporary ID until fetch/realtime replaces it or deduplicates it
-        order_id: roomId === 'cs' ? null : roomId,
-        sender_id: session.user.id,
-        receiver_id: receiverId,
-        message: msgText,
-        created_at: new Date().toISOString()
-      }
-      setMessages((prev) => [...prev, newMsg])
+      console.error("Gagal menyimpan pesan ke database:", error)
     }
   }
 
-  const handleCall = async () => {
+  const handleStartInAppCall = async () => {
+    setShowCallModal(false)
     if (localStorage.getItem('demo_mode')) {
       await supabase.channel('demo_calls').send({
         type: 'broadcast',
         event: 'incoming_call',
         payload: { callerName: 'Pengguna (Demo)', roomId: roomId }
       })
-      navigate(`/call/${roomId}`, { state: { isCaller: true } })
+      navigate(`/call/${roomId}`, { 
+        state: { 
+          isCaller: true, 
+          partnerPhone: receiverPhone, 
+          partnerName: receiverName 
+        } 
+      })
       return
     }
 
@@ -203,16 +266,53 @@ export default function Chat() {
       const myName = session.user.user_metadata?.full_name || 'Pengguna'
       const callRoomId = roomId === 'cs' ? `cs_${session.user.id}` : roomId
       
-      await supabase.channel(`user_${receiverId}`).send({
-        type: 'broadcast',
-        event: 'incoming_call',
-        payload: { callerName: myName, roomId: callRoomId }
+      const targetChannel = supabase.channel(`user_${receiverId}`)
+      targetChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          targetChannel.send({
+            type: 'broadcast',
+            event: 'incoming_call',
+            payload: { 
+              callerName: myName, 
+              roomId: callRoomId,
+              partnerPhone: session.user.phone || ''
+            }
+          }).catch(() => {})
+        }
       })
-      navigate(`/call/${callRoomId}`, { state: { isCaller: true } })
+
+      navigate(`/call/${callRoomId}`, { 
+        state: { 
+          isCaller: true, 
+          partnerPhone: receiverPhone, 
+          partnerName: receiverName 
+        } 
+      })
+    }
+  }
+
+  const handleStartDirectPhoneCall = () => {
+    setShowCallModal(false)
+    if (receiverPhone) {
+      window.location.href = `tel:${receiverPhone}`
+    } else {
+      alert('Nomor telepon belum tersedia.')
+    }
+  }
+
+  const handleStartWhatsAppCall = () => {
+    setShowCallModal(false)
+    if (receiverPhone) {
+      let clean = receiverPhone.replace(/\D/g, '')
+      if (clean.startsWith('0')) clean = '62' + clean.slice(1)
+      window.open(`https://wa.me/${clean}?text=Halo,%20saya%20menghubungi%20terkait%20pesanan%20AnindiraTrans.`, '_blank')
+    } else {
+      alert('Nomor telepon/WhatsApp belum tersedia.')
     }
   }
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-gray-50">Memuat...</div>
+
 
   return (
     <div className="flex h-screen flex-col bg-gray-50">
@@ -229,13 +329,84 @@ export default function Chat() {
         </div>
         {roomId !== 'cs' && (
           <button 
-            onClick={handleCall}
-            className="rounded-full bg-blue-50 p-2 text-blue-600 hover:bg-blue-100 transition"
+            onClick={() => setShowCallModal(true)}
+            className="rounded-full bg-blue-50 p-2.5 text-blue-600 hover:bg-blue-100 transition active:scale-95"
+            title="Hubungi via Telepon / Panggilan"
           >
             <Phone size={20} />
           </button>
         )}
       </header>
+
+      {/* CALL CHOICE MODAL */}
+      {showCallModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl relative">
+            <button 
+              onClick={() => setShowCallModal(false)}
+              className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-16 h-16 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                <PhoneCall size={30} />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">Pilih Metode Panggilan</h3>
+              <p className="text-xs text-gray-500 mt-1">Hubungi {receiverName}</p>
+            </div>
+
+            <div className="space-y-3">
+              <button 
+                onClick={handleStartInAppCall}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-sm border border-blue-200 transition active:scale-95"
+              >
+                <div className="flex items-center space-x-3">
+                  <Phone size={18} className="text-blue-600" />
+                  <div className="text-left">
+                    <p className="font-bold">Panggilan Suara In-App</p>
+                    <p className="text-[11px] font-normal text-blue-500">VoIP Langsung via Aplikasi</p>
+                  </div>
+                </div>
+                <span className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-full font-bold">Panggil</span>
+              </button>
+
+              {receiverPhone && (
+                <>
+                  <button 
+                    onClick={handleStartWhatsAppCall}
+                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-sm border border-emerald-200 transition active:scale-95"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <MessageSquare size={18} className="text-emerald-600" />
+                      <div className="text-left">
+                        <p className="font-bold">WhatsApp Call / Chat</p>
+                        <p className="text-[11px] font-normal text-emerald-600">{receiverPhone}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs bg-emerald-600 text-white px-2.5 py-1 rounded-full font-bold">Buka WA</span>
+                  </button>
+
+                  <button 
+                    onClick={handleStartDirectPhoneCall}
+                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold text-sm border border-gray-200 transition active:scale-95"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <PhoneCall size={18} className="text-gray-600" />
+                      <div className="text-left">
+                        <p className="font-bold">Telepon Seluler Biasa (GSM)</p>
+                        <p className="text-[11px] font-normal text-gray-500">Panggilan Pulsa / Dial</p>
+                      </div>
+                    </div>
+                    <span className="text-xs bg-gray-700 text-white px-2.5 py-1 rounded-full font-bold">Dial</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CHAT AREA */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -261,22 +432,25 @@ export default function Chat() {
           }
 
           return (
-            <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-              {!isMe && (
-                <span className={`text-[10px] font-bold mb-1 ml-1 ${senderColor}`}>
-                  {senderLabel}
-                </span>
-              )}
+            <div 
+              key={msg.id} 
+              className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+            >
               <div 
-                className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                className={`max-w-[78%] rounded-2xl px-4 py-2.5 shadow-sm ${
                   isMe 
-                  ? 'bg-blue-600 text-white rounded-br-sm' 
-                  : 'bg-white border border-gray-100 shadow-sm text-gray-800 rounded-bl-sm'
+                    ? 'bg-blue-600 text-white rounded-br-xs' 
+                    : 'bg-white text-gray-800 border border-gray-100 rounded-bl-xs'
                 }`}
               >
-                <p className="text-[15px]">{msg.message}</p>
-                <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-blue-200' : 'text-gray-400'}`}>
-                  {new Date(msg.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                {!isMe && (
+                  <p className={`text-[11px] font-semibold mb-1 ${senderColor}`}>
+                    {senderLabel}
+                  </p>
+                )}
+                <p className="text-sm break-words whitespace-pre-wrap leading-relaxed">{msg.message}</p>
+                <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-blue-100' : 'text-gray-400'}`}>
+                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {isMe && <span className="ml-1 opacity-75">({senderLabel})</span>}
                 </p>
               </div>
@@ -288,19 +462,6 @@ export default function Chat() {
 
       {/* INPUT AREA */}
       <div className="bg-white px-4 py-3 border-t shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.02)] pb-safe shrink-0">
-        {session?.user?.user_metadata?.role === 'ADMIN' && orderInfo && (
-          <div className="mb-2 flex items-center space-x-2">
-            <span className="text-xs font-bold text-gray-500">Kirim Notif Ke:</span>
-            <select 
-              value={receiverId || ''} 
-              onChange={(e) => setReceiverId(e.target.value)}
-              className="text-xs border rounded px-2 py-1 bg-gray-50 focus:outline-none"
-            >
-              {orderInfo.driver_id && <option value={orderInfo.driver_id}>Sopir</option>}
-              {orderInfo.user_id && <option value={orderInfo.user_id}>Penumpang</option>}
-            </select>
-          </div>
-        )}
         <form onSubmit={sendMessage} className="flex items-center space-x-2">
           <input
             type="text"

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { playNotificationSound } from '../../lib/audioNotification'
-import { X, ExternalLink, DollarSign, Package, UserCheck, RefreshCw, Download, BellRing, Check, Search, MessageSquare, PhoneCall } from 'lucide-react'
+import { X, ExternalLink, DollarSign, Package, UserCheck, RefreshCw, Download, BellRing, Check, Search, MessageSquare, PhoneCall, Trash2 } from 'lucide-react'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -132,6 +132,33 @@ export default function Dashboard() {
     }
   }
 
+  const handleDeleteAdminOrder = async (orderId: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus riwayat pesanan ini secara permanen dari sistem? Seluruh pesan chat dan data terkait pesanan ini akan dibersihkan.')) {
+      return
+    }
+
+    try {
+      // Clean up child records to avoid FK constraint issues
+      await supabase.from('chats').delete().eq('order_id', orderId)
+      await supabase.from('reviews').delete().eq('order_id', orderId)
+      try {
+        await supabase.from('carpool_reservations').delete().eq('order_id', orderId)
+      } catch (_) {}
+
+      const { error } = await supabase.from('orders').delete().eq('id', orderId)
+      if (error) throw error
+
+      setOrders(prev => prev.filter(o => o.id !== orderId))
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder(null)
+      }
+      alert('Pesanan telah berhasil dihapus dari sistem.')
+    } catch (err: any) {
+      console.error('Gagal menghapus pesanan:', err)
+      alert('Gagal menghapus pesanan: ' + err.message)
+    }
+  }
+
   const exportToCSV = () => {
     if (orders.length === 0) return alert('Tidak ada data untuk diekspor')
     
@@ -166,6 +193,9 @@ export default function Dashboard() {
     const carMatch = (d.driver_profiles?.car_type || '').toLowerCase().includes(query)
     return nameMatch || phoneMatch || carMatch
   })
+
+  const activeDrivers = filteredDrivers.filter(d => d.status === 'ACTIVE')
+  const inactiveDrivers = filteredDrivers.filter(d => d.status !== 'ACTIVE')
 
   // Calculate Statistics
   const totalRevenue = orders.filter(o => o.status === 'COMPLETED').reduce((sum, order) => sum + (Number(order.total_price) || 0), 0)
@@ -319,19 +349,55 @@ export default function Dashboard() {
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                     <select
-                      className="rounded-xl border border-gray-300 px-3 py-2 text-xs font-bold text-gray-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none w-52 bg-white shadow-sm"
+                      className="rounded-xl border border-gray-300 px-3 py-2 text-xs font-bold text-gray-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none w-56 bg-white shadow-sm"
                       onChange={(e) => {
                         if (e.target.value) assignDriver(order.id, e.target.value)
                       }}
                       value={order.driver_id || ''}
                     >
-                      <option value="" disabled>Pilih Sopir ({filteredDrivers.length} Tersedia)...</option>
-                      {filteredDrivers.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.full_name || d.phone} ({d.status === 'ACTIVE' ? 'Aktif' : 'Offline'})
-                        </option>
-                      ))}
+                      <option value="" disabled>Pilih Sopir ({activeDrivers.length} Aktif / {filteredDrivers.length} Total)...</option>
+                      
+                      <optgroup label="🟢 Sopir Aktif (Siap Kerja)">
+                        {activeDrivers.map(d => {
+                          const carType = d.driver_profiles?.car_type || d.driver_profiles?.[0]?.car_type || 'Armada'
+                          const plate = d.driver_profiles?.car_plate_number || d.driver_profiles?.[0]?.car_plate_number || ''
+                          return (
+                            <option key={d.id} value={d.id}>
+                              🟢 {d.full_name || d.phone} - {carType} {plate ? `(${plate})` : ''}
+                            </option>
+                          )
+                        })}
+                        {activeDrivers.length === 0 && (
+                          <option value="" disabled>Tidak ada sopir aktif saat ini</option>
+                        )}
+                      </optgroup>
+
+                      <optgroup label="⚪ Sopir Offline / Tidak Aktif">
+                        {inactiveDrivers.map(d => (
+                          <option key={d.id} value={d.id}>
+                            ⚪ {d.full_name || d.phone} (Sedang Offline)
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
+
+                    {/* Driver Status Indicator Badge */}
+                    {order.driver_id ? (() => {
+                      const assigned = drivers.find(d => d.id === order.driver_id)
+                      if (!assigned) return <p className="text-[10px] text-gray-400 mt-1">Sopir tidak ditemukan</p>
+                      const isActive = assigned.status === 'ACTIVE'
+                      return (
+                        <div className={`mt-1.5 flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded-md border w-fit ${
+                          isActive 
+                            ? 'bg-green-50 text-green-700 border-green-200' 
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          <span>{isActive ? '🟢 Aktif (Siap Kerja)' : '⚠️ Sedang Offline'}</span>
+                        </div>
+                      )
+                    })() : (
+                      <p className="text-[10px] text-gray-400 mt-1">Belum ditugaskan</p>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium space-x-1">
                     <button 
@@ -356,6 +422,16 @@ export default function Dashboard() {
                     >
                       Detail
                     </button>
+                    {(order.status === 'COMPLETED' || order.status === 'CANCELLED') && (
+                      <button 
+                        onClick={() => handleDeleteAdminOrder(order.id)}
+                        className="text-red-600 bg-red-50 hover:bg-red-600 hover:text-white p-2 rounded-lg transition active:scale-95 inline-flex items-center space-x-1 font-bold text-xs"
+                        title="Hapus Pesanan Selesai"
+                      >
+                        <Trash2 size={16} />
+                        <span>Hapus</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -463,19 +539,32 @@ export default function Dashboard() {
               {selectedOrder.driver_id && (
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Informasi Sopir</p>
-                  <div className="flex items-center space-x-3 bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
-                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold">
+                  <div className="flex items-center space-x-3 bg-white border border-gray-200 p-3.5 rounded-xl shadow-sm">
+                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold shrink-0">
                       S
                     </div>
                     {(() => {
                       const driver = drivers.find(d => d.id === selectedOrder.driver_id)
                       if (!driver) return <p className="font-bold text-gray-900">Loading...</p>
+                      const isActive = driver.status === 'ACTIVE'
                       return (
-                        <div>
-                          <p className="font-bold text-gray-900">{driver.full_name || 'Nama Sopir'}</p>
-                          <p className="text-xs text-gray-500">
-                            {driver.phone || '-'} • {driver.driver_profiles?.[0]?.car_plate_number || driver.driver_profiles?.car_plate_number || 'Plat Belum Diatur'}
-                          </p>
+                        <div className="flex-1 flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <p className="font-bold text-gray-900">{driver.full_name || 'Nama Sopir'}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {isActive ? '🟢 Aktif (Siap Kerja)' : '⚪ Offline'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {driver.phone || '-'} • {driver.driver_profiles?.[0]?.car_plate_number || driver.driver_profiles?.car_plate_number || 'Plat Belum Diatur'}
+                            </p>
+                          </div>
+                          {driver.phone && (
+                            <a href={`tel:${driver.phone}`} className="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition" title="Telepon Sopir">
+                              <PhoneCall size={18} />
+                            </a>
+                          )}
                         </div>
                       )
                     })()}
@@ -528,7 +617,16 @@ export default function Dashboard() {
               </div>
             </div>
             
-            <div className="border-t bg-white p-6 sm:rounded-b-3xl">
+            <div className="border-t bg-white p-6 sm:rounded-b-3xl space-y-2">
+              {(selectedOrder.status === 'COMPLETED' || selectedOrder.status === 'CANCELLED') && (
+                <button 
+                  onClick={() => handleDeleteAdminOrder(selectedOrder.id)}
+                  className="w-full rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 py-3 text-sm font-bold transition active:scale-[0.98] flex items-center justify-center space-x-2"
+                >
+                  <Trash2 size={16} />
+                  <span>Hapus Pesanan Ini dari Database</span>
+                </button>
+              )}
               <button 
                 onClick={() => setSelectedOrder(null)}
                 className="w-full rounded-xl bg-gray-900 py-3.5 text-sm font-bold text-white shadow-lg transition active:scale-[0.98] hover:bg-black"

@@ -10,6 +10,8 @@ export default function Call() {
   
   // Determine if this user initiated the call
   const isCaller = location.state?.isCaller || false
+  const [partnerPhone, setPartnerPhone] = useState<string>(location.state?.partnerPhone || '')
+  const [partnerName, setPartnerName] = useState<string>(location.state?.partnerName || 'Lawan Bicara')
   
   const [status, setStatus] = useState<string>('Menghubungkan...')
   const [isMuted, setIsMuted] = useState(false)
@@ -21,15 +23,43 @@ export default function Call() {
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   const channelRef = useRef<any>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isConnectedRef = useRef(false)
+  isConnectedRef.current = isConnected
+
+  // Fetch partner info from order/user if not passed in state
+  useEffect(() => {
+    if (!partnerPhone && roomId && roomId !== 'cs') {
+      supabase.from('orders')
+        .select('user_id, driver_id')
+        .eq('id', roomId)
+        .maybeSingle()
+        .then(async ({ data: orderData }) => {
+          if (orderData) {
+            const { data: { session } } = await supabase.auth.getSession()
+            const targetUserId = session?.user.id === orderData.user_id ? orderData.driver_id : orderData.user_id
+            if (targetUserId) {
+              const { data: targetUser } = await supabase.from('users').select('full_name, phone').eq('id', targetUserId).maybeSingle()
+              if (targetUser) {
+                if (targetUser.phone) setPartnerPhone(targetUser.phone)
+                if (targetUser.full_name) setPartnerName(targetUser.full_name)
+              }
+            }
+          }
+        })
+    }
+  }, [roomId, partnerPhone])
 
   useEffect(() => {
     // ICE Servers (Google's public STUN servers)
     const configuration = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
       ]
     }
+
+    let retryOfferInterval: any = null
 
     const initCall = async () => {
       try {
@@ -50,8 +80,10 @@ export default function Call() {
         pc.ontrack = (event) => {
           if (remoteAudioRef.current && event.streams[0]) {
             remoteAudioRef.current.srcObject = event.streams[0]
+            remoteAudioRef.current.play().catch(e => console.warn('Audio play notice:', e))
             setIsConnected(true)
             setStatus('Terhubung')
+            if (retryOfferInterval) clearInterval(retryOfferInterval)
           }
         }
 
@@ -67,7 +99,22 @@ export default function Call() {
               type: 'broadcast',
               event: 'webrtc_signal',
               payload: { type: 'candidate', candidate: event.candidate }
+            }).catch(() => {})
+          }
+        }
+
+        const sendOffer = async () => {
+          if (isConnectedRef.current) return
+          try {
+            const offer = await pc.createOffer()
+            await pc.setLocalDescription(offer)
+            await channel.send({
+              type: 'broadcast',
+              event: 'webrtc_signal',
+              payload: { type: 'offer', offer }
             })
+          } catch (e) {
+            console.warn('Send offer error:', e)
           }
         }
 
@@ -75,33 +122,50 @@ export default function Call() {
         channel.on('broadcast', { event: 'webrtc_signal' }, async (payload: any) => {
           const data = payload.payload
 
-          if (data.type === 'offer' && !isCaller) {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
-            const answer = await pc.createAnswer()
-            await pc.setLocalDescription(answer)
-            channel.send({
-              type: 'broadcast',
-              event: 'webrtc_signal',
-              payload: { type: 'answer', answer }
-            })
-            setStatus('Menyambungkan...')
+          if (data.type === 'receiver_ready' && isCaller) {
+            setStatus('Penerima siap, menyambungkan...')
+            await sendOffer()
+          }
+
+          else if (data.type === 'offer' && !isCaller) {
+            setStatus('Menyambungkan suara...')
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+              const answer = await pc.createAnswer()
+              await pc.setLocalDescription(answer)
+              await channel.send({
+                type: 'broadcast',
+                event: 'webrtc_signal',
+                payload: { type: 'answer', answer }
+              })
+            } catch (e) {
+              console.warn('Error handling offer:', e)
+            }
           } 
           
           else if (data.type === 'answer' && isCaller) {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer))
-            setStatus('Menyambungkan...')
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer))
+              setStatus('Terhubung')
+              setIsConnected(true)
+              if (retryOfferInterval) clearInterval(retryOfferInterval)
+            } catch (e) {
+              console.warn('Error setting remote description answer:', e)
+            }
           } 
           
           else if (data.type === 'candidate') {
             try {
-              await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+              }
             } catch (e) {
               console.error('Error adding received ice candidate', e)
             }
           }
           
           else if (data.type === 'end_call') {
-            handleEndCall(false) // false means remote ended it
+            handleEndCall(false)
           }
         })
 
@@ -110,23 +174,30 @@ export default function Call() {
           if (statusResponse === 'SUBSCRIBED') {
             if (isCaller) {
               setStatus('Memanggil...')
-              // Caller sends offer
-              const offer = await pc.createOffer()
-              await pc.setLocalDescription(offer)
+              await sendOffer()
+              // Retry offer periodically until connected
+              retryOfferInterval = setInterval(() => {
+                if (!isConnectedRef.current) {
+                  sendOffer()
+                } else {
+                  clearInterval(retryOfferInterval)
+                }
+              }, 2500)
+            } else {
+              setStatus('Menghubungkan...')
+              // Announce receiver is ready so caller sends offer
               channel.send({
                 type: 'broadcast',
                 event: 'webrtc_signal',
-                payload: { type: 'offer', offer }
-              })
-            } else {
-              setStatus('Menunggu koneksi...')
+                payload: { type: 'receiver_ready' }
+              }).catch(() => {})
             }
           }
         })
 
       } catch (error) {
         console.error('Error starting call:', error)
-        setStatus('Gagal mengakses mikrofon.')
+        setStatus('Gagal mengakses mikrofon atau audio.')
       }
     }
 
@@ -138,7 +209,7 @@ export default function Call() {
     return () => {
       isMounted = false
       clearTimeout(timeoutId)
-      // Cleanup media silently on unmount without triggering navigate
+      if (retryOfferInterval) clearInterval(retryOfferInterval)
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop())
       }
@@ -150,6 +221,7 @@ export default function Call() {
       }
     }
   }, [roomId, isCaller])
+
 
   // Timer effect
   useEffect(() => {
@@ -228,10 +300,10 @@ export default function Call() {
       </header>
 
       {/* Call Info / Animation Area */}
-      <div className="flex-1 flex flex-col items-center justify-center pb-20">
+      <div className="flex-1 flex flex-col items-center justify-center pb-12 px-4 text-center">
         
         {/* Ripple Animation Container */}
-        <div className="relative mb-8 flex h-40 w-40 items-center justify-center">
+        <div className="relative mb-6 flex h-36 w-36 items-center justify-center">
           {isConnected && (
             <>
               <div className="absolute h-full w-full animate-ping rounded-full bg-blue-500/20" style={{ animationDuration: '2s' }}></div>
@@ -239,20 +311,43 @@ export default function Call() {
             </>
           )}
           
-          <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-teal-400 shadow-2xl shadow-blue-500/30 overflow-hidden border-4 border-gray-800">
-            <span className="text-4xl text-white font-bold">
-              {isCaller ? 'P' : 'S'} {/* Placeholder initial */}
+          <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-teal-400 shadow-2xl shadow-blue-500/30 overflow-hidden border-4 border-gray-800">
+            <span className="text-3xl text-white font-bold">
+              {partnerName ? partnerName.charAt(0).toUpperCase() : (isCaller ? 'P' : 'S')}
             </span>
           </div>
         </div>
 
-        <h2 className="text-2xl font-bold text-white mb-2">
-          {isCaller ? 'Panggilan Keluar' : 'Panggilan Masuk'}
+        <h2 className="text-xl font-bold text-white mb-1">
+          {partnerName}
         </h2>
+        <p className="text-xs text-gray-400 mb-2">
+          {isCaller ? 'Panggilan Keluar' : 'Panggilan Masuk'}
+        </p>
         
-        <p className={`text-lg font-medium ${isConnected ? 'text-green-400' : 'text-gray-400 animate-pulse'}`}>
+        <p className={`text-base font-medium ${isConnected ? 'text-green-400 font-bold' : 'text-gray-300 animate-pulse'}`}>
           {isConnected ? formatTime(callDuration) : status}
         </p>
+
+        {/* Fallback to WhatsApp / Direct Phone */}
+        {partnerPhone && (
+          <div className="mt-6 flex flex-col sm:flex-row items-center gap-2">
+            <a 
+              href={`https://wa.me/${partnerPhone.replace(/\D/g, '').replace(/^0/, '62')}?text=Halo,%20saya%20menghubungi%20Anda%20terkait%20pesanan%20AnindiraTrans.`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-2 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-lg transition active:scale-95"
+            >
+              <span>Hubungi via WhatsApp</span>
+            </a>
+            <a 
+              href={`tel:${partnerPhone}`}
+              className="flex items-center space-x-2 bg-blue-600/90 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-lg transition active:scale-95"
+            >
+              <span>Telepon Langsung (GSM)</span>
+            </a>
+          </div>
+        )}
 
       </div>
 

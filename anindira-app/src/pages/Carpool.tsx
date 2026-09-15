@@ -313,6 +313,7 @@ export default function Carpool() {
           extraPriceName: selectedExtraPrice?.description || null,
           distanceKm
         }),
+        seat_selected: selectedSeats.join(', '),
         total_price: totalPrice,
         payment_method: paymentMethod,
         payment_status: paymentMethod === 'ANINDIRAPAY' ? 'PAID' : 'UNPAID',

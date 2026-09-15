@@ -1,46 +1,69 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Headphones, BookOpen, UserPlus, ChevronRight, MessageCircle, Phone } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { ArrowLeft, Headphones, BookOpen, UserPlus, ChevronRight, MessageCircle, MapPin, MessageSquare, PhoneCall } from 'lucide-react'
 
 export default function Help() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'BANTUAN' | 'DAFTAR' | 'TUTORIAL'>('BANTUAN')
+  const [outlet, setOutlet] = useState<any>(null)
+  const [csPhone, setCsPhone] = useState('085394042658')
+
+  useEffect(() => {
+    supabase.from('outlets')
+      .select('*')
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setOutlet(data)
+          if (data.phone) setCsPhone(data.phone)
+        }
+      })
+  }, [])
+
+  const getCleanPhone = () => {
+    let clean = csPhone.replace(/\D/g, '')
+    if (clean.startsWith('0')) clean = '62' + clean.slice(1)
+    return clean
+  }
 
   const openWhatsApp = () => {
-    window.open('https://wa.me/6281234567890?text=Halo%20Admin%20AnindiraTrans,%20saya%20butuh%20bantuan.', '_blank')
+    window.open(`https://wa.me/${getCleanPhone()}?text=Halo%20Admin%20AnindiraTrans,%20saya%20butuh%20bantuan.`, '_blank')
   }
 
   const openPhone = () => {
-    window.location.href = 'tel:+6281234567890'
+    window.location.href = `tel:${csPhone}`
   }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
-      <div className="sticky top-0 z-50 flex items-center bg-white px-4 py-4 shadow-sm">
+      <div className="sticky top-0 z-50 flex items-center bg-white px-4 py-4 shadow-sm border-b">
         <button onClick={() => navigate('/')} className="mr-4 text-gray-600 transition active:scale-90">
           <ArrowLeft size={24} />
         </button>
         <h1 className="text-lg font-bold text-gray-800">Pusat Informasi & Bantuan</h1>
       </div>
 
-      <div className="p-4 space-y-6">
+      <div className="p-4 space-y-6 max-w-lg mx-auto">
         <div className="flex space-x-2 border-b border-gray-200 overflow-x-auto scrollbar-hide pb-2">
           <button
-            className={`flex items-center space-x-2 px-4 py-2 font-bold rounded-full transition-colors whitespace-nowrap ${activeTab === 'BANTUAN' ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}
+            className={`flex items-center space-x-2 px-4 py-2 font-bold rounded-full transition-colors whitespace-nowrap text-xs sm:text-sm ${activeTab === 'BANTUAN' ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}
             onClick={() => setActiveTab('BANTUAN')}
           >
             <Headphones size={16} />
             <span>CS & Bantuan</span>
           </button>
           <button
-            className={`flex items-center space-x-2 px-4 py-2 font-bold rounded-full transition-colors whitespace-nowrap ${activeTab === 'DAFTAR' ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}
+            className={`flex items-center space-x-2 px-4 py-2 font-bold rounded-full transition-colors whitespace-nowrap text-xs sm:text-sm ${activeTab === 'DAFTAR' ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}
             onClick={() => setActiveTab('DAFTAR')}
           >
             <UserPlus size={16} />
             <span>Cara Daftar Mitra</span>
           </button>
           <button
-            className={`flex items-center space-x-2 px-4 py-2 font-bold rounded-full transition-colors whitespace-nowrap ${activeTab === 'TUTORIAL' ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}
+            className={`flex items-center space-x-2 px-4 py-2 font-bold rounded-full transition-colors whitespace-nowrap text-xs sm:text-sm ${activeTab === 'TUTORIAL' ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-500 border border-gray-200'}`}
             onClick={() => setActiveTab('TUTORIAL')}
           >
             <BookOpen size={16} />
@@ -50,41 +73,87 @@ export default function Help() {
 
         {activeTab === 'BANTUAN' && (
           <div className="animate-in fade-in slide-in-from-right-4 space-y-4">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
               <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Headphones size={32} />
               </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Butuh Bantuan?</h2>
-              <p className="text-sm text-gray-500 mb-6">Tim Customer Service kami siap melayani Anda 24/7 jika mengalami kendala dalam perjalanan atau aplikasi.</p>
+              <h2 className="text-xl font-bold text-gray-900 mb-1">Customer Service Resmi</h2>
+              <p className="text-xs text-gray-500 mb-6">Layanan bantuan 24 jam untuk segala kebutuhan dan pertanyaan perjalanan Anda.</p>
               
               <div className="space-y-3">
-                <button onClick={openWhatsApp} className="w-full flex items-center justify-between bg-green-50 text-green-700 border border-green-200 p-4 rounded-xl font-bold transition active:scale-95">
+                <button 
+                  onClick={openWhatsApp} 
+                  className="w-full flex items-center justify-between bg-emerald-50 text-emerald-800 border border-emerald-200 p-4 rounded-2xl font-bold transition active:scale-95 shadow-sm hover:bg-emerald-100"
+                >
                   <div className="flex items-center space-x-3">
-                    <MessageCircle size={20} />
-                    <span>Hubungi via WhatsApp</span>
+                    <MessageCircle size={22} className="text-emerald-600" />
+                    <div className="text-left">
+                      <p className="text-sm font-bold">Chat via WhatsApp Resmi</p>
+                      <p className="text-[11px] font-normal text-emerald-600">{csPhone}</p>
+                    </div>
                   </div>
-                  <ChevronRight size={18} className="text-green-400" />
+                  <ChevronRight size={18} className="text-emerald-400" />
                 </button>
-                <button onClick={openPhone} className="w-full flex items-center justify-between bg-blue-50 text-blue-700 border border-blue-200 p-4 rounded-xl font-bold transition active:scale-95">
+
+                <button 
+                  onClick={() => navigate('/chat/cs')} 
+                  className="w-full flex items-center justify-between bg-blue-50 text-blue-800 border border-blue-200 p-4 rounded-2xl font-bold transition active:scale-95 shadow-sm hover:bg-blue-100"
+                >
                   <div className="flex items-center space-x-3">
-                    <Phone size={20} />
-                    <span>Hubungi via Telepon</span>
+                    <MessageSquare size={22} className="text-blue-600" />
+                    <div className="text-left">
+                      <p className="text-sm font-bold">Live Chat di Aplikasi</p>
+                      <p className="text-[11px] font-normal text-blue-500">Pesan instan langsung ke CS</p>
+                    </div>
                   </div>
                   <ChevronRight size={18} className="text-blue-400" />
                 </button>
+
+                <button 
+                  onClick={openPhone} 
+                  className="w-full flex items-center justify-between bg-gray-50 text-gray-800 border border-gray-200 p-4 rounded-2xl font-bold transition active:scale-95 shadow-sm hover:bg-gray-100"
+                >
+                  <div className="flex items-center space-x-3">
+                    <PhoneCall size={22} className="text-gray-600" />
+                    <div className="text-left">
+                      <p className="text-sm font-bold">Telepon Langsung (GSM)</p>
+                      <p className="text-[11px] font-normal text-gray-500">{csPhone}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} className="text-gray-400" />
+                </button>
+              </div>
+            </div>
+
+            {/* KANTOR CABANG / OUTLET INFO */}
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
+              <h3 className="font-bold text-gray-900 text-sm mb-3 flex items-center">
+                <MapPin size={18} className="mr-2 text-primary" /> Kantor & Cabang Operasional
+              </h3>
+              <div className="rounded-2xl bg-blue-50/70 border border-blue-100 p-4 space-y-1.5">
+                <p className="font-black text-gray-900 text-sm">{outlet?.name || 'Anindira Trans Marisa'}</p>
+                <p className="text-xs text-gray-600 leading-relaxed">{outlet?.address || 'Desa Palopo Jln Trans Komp. Polres Marisa'}</p>
+                <div className="pt-2 flex items-center justify-between text-[11px] text-blue-700 font-bold border-t border-blue-200/50">
+                  <span>Kontak: {csPhone}</span>
+                  <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded">Buka 24 Jam</span>
+                </div>
               </div>
             </div>
             
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <h3 className="font-bold text-gray-800 mb-4">FAQ (Pertanyaan Umum)</h3>
-              <div className="space-y-4">
+              <div className="space-y-4 text-xs">
                 <div className="border-b border-gray-100 pb-3">
-                  <p className="font-bold text-sm text-gray-700">Bagaimana cara membatalkan pesanan?</p>
-                  <p className="text-xs text-gray-500 mt-1">Anda bisa menghubungi admin atau driver langsung melalui menu Chat/Telpon di detail pesanan Anda sebelum perjalanan dimulai.</p>
+                  <p className="font-bold text-sm text-gray-700">Bagaimana cara menghubungi sopir?</p>
+                  <p className="text-gray-500 mt-1">Setelah pesanan Anda diterima dan sopir ditugaskan, Anda dapat menekan tombol <strong>Chat</strong> atau <strong>Telpon</strong> langsung di menu Riwayat Pesanan.</p>
                 </div>
                 <div className="border-b border-gray-100 pb-3">
                   <p className="font-bold text-sm text-gray-700">Metode pembayaran apa saja yang didukung?</p>
-                  <p className="text-xs text-gray-500 mt-1">Kami mendukung Tunai (dibayar langsung ke sopir) dan Transfer Bank via Saldo AnindiraPay.</p>
+                  <p className="text-gray-500 mt-1">Kami mendukung <strong>QRIS</strong> (GoPay, OVO, Dana, ShopeePay, BCA, dll), <strong>Transfer Bank BNI</strong>, dan <strong>Saldo AnindiraPay</strong> serta Tunai (Cash ke sopir).</p>
+                </div>
+                <div>
+                  <p className="font-bold text-sm text-gray-700">Bagaimana jika ada kendala perjalanan?</p>
+                  <p className="text-gray-500 mt-1">Hubungi Customer Service kami 24 jam melalui WhatsApp di {csPhone} atau gunakan fitur Live Chat di aplikasi.</p>
                 </div>
               </div>
             </div>

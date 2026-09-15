@@ -27,6 +27,7 @@ import { supabase } from './lib/supabase'
 import { initializePushNotifications } from './lib/pushNotifications'
 import { LayoutDashboard, Users as UsersIcon, Settings, Bell, LogOut, Menu, X, CreditCard, Tag, Store } from 'lucide-react'
 import IncomingCallAlert from './components/IncomingCallAlert'
+import IncomingMessageAlert from './components/IncomingMessageAlert'
 import { CapacitorUpdater } from '@capgo/capacitor-updater'
 import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'
@@ -258,6 +259,7 @@ function App() {
   return (
     <BrowserRouter>
       <IncomingCallAlert />
+      <IncomingMessageAlert />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/permintaanhapusdata" element={<DeleteDataRequest />} />

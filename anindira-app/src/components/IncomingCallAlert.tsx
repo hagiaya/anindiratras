@@ -6,6 +6,7 @@ import { Phone, PhoneOff } from 'lucide-react'
 interface IncomingCallData {
   callerName: string
   roomId: string
+  partnerPhone?: string
 }
 
 export default function IncomingCallAlert() {
@@ -66,32 +67,54 @@ export default function IncomingCallAlert() {
     }
   }, [])
 
-  // Auto-dismiss after 30 seconds
+  // Auto-dismiss after 30 seconds and repeat ringtone
   useEffect(() => {
     if (incomingCall) {
+      const ringInterval = setInterval(() => {
+        playRingtone()
+      }, 3000)
+
       const timer = setTimeout(() => {
         setIncomingCall(null)
       }, 30000)
-      return () => clearTimeout(timer)
+
+      return () => {
+        clearInterval(ringInterval)
+        clearTimeout(timer)
+      }
     }
   }, [incomingCall])
 
   const playRingtone = () => {
-    // Attempt to play a simple beep (Autoplay policies might block this unless user interacted)
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const oscillator = audioCtx.createOscillator()
-      const gainNode = audioCtx.createGain()
-      oscillator.connect(gainNode)
-      gainNode.connect(audioCtx.destination)
-      oscillator.type = 'sine'
-      oscillator.frequency.setValueAtTime(440, audioCtx.currentTime)
-      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime)
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioCtx) return
+      const audioCtx = new AudioCtx()
       
-      // Beep pattern
-      oscillator.start()
-      gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 1)
-      oscillator.stop(audioCtx.currentTime + 1)
+      // Dual tone ring (North American / standard phone ring style)
+      const playTonePair = (f1: number, f2: number, start: number, dur: number) => {
+        const osc1 = audioCtx.createOscillator()
+        const osc2 = audioCtx.createOscillator()
+        const gain = audioCtx.createGain()
+
+        osc1.frequency.setValueAtTime(f1, audioCtx.currentTime + start)
+        osc2.frequency.setValueAtTime(f2, audioCtx.currentTime + start)
+        
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime + start)
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + start + dur)
+
+        osc1.connect(gain)
+        osc2.connect(gain)
+        gain.connect(audioCtx.destination)
+
+        osc1.start(audioCtx.currentTime + start)
+        osc2.start(audioCtx.currentTime + start)
+        osc1.stop(audioCtx.currentTime + start + dur)
+        osc2.stop(audioCtx.currentTime + start + dur)
+      }
+
+      playTonePair(440, 480, 0, 0.7)
+      playTonePair(440, 480, 0.9, 0.7)
     } catch (e) {
       console.warn('Audio playback failed', e)
     }
@@ -99,7 +122,13 @@ export default function IncomingCallAlert() {
 
   const handleAccept = () => {
     if (incomingCall) {
-      navigate(`/call/${incomingCall.roomId}`, { state: { isCaller: false } })
+      navigate(`/call/${incomingCall.roomId}`, { 
+        state: { 
+          isCaller: false, 
+          partnerPhone: incomingCall.partnerPhone, 
+          partnerName: incomingCall.callerName 
+        } 
+      })
       setIncomingCall(null)
     }
   }
@@ -107,6 +136,7 @@ export default function IncomingCallAlert() {
   const handleDecline = () => {
     setIncomingCall(null)
   }
+
 
   if (!incomingCall) return null
 
