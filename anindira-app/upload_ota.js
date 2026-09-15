@@ -12,9 +12,9 @@ envFile.split('\n').forEach(line => {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function upload() {
-  const file = fs.readFileSync('../update-v1.0.7.zip');
+  const file = fs.readFileSync('../update-v1.0.9.zip');
   console.log('Uploading to app_updates bucket...');
-  const { data, error } = await supabase.storage.from('app_updates').upload('update-v1.0.7.zip', file, {
+  const { data, error } = await supabase.storage.from('app_updates').upload('update-v1.0.9.zip', file, {
     cacheControl: '3600',
     upsert: true,
     contentType: 'application/zip'
@@ -27,13 +27,13 @@ async function upload() {
   
   console.log('Upload success:', data);
   
-  const publicUrl = supabase.storage.from('app_updates').getPublicUrl('update-v1.0.7.zip').data.publicUrl;
+  const publicUrl = supabase.storage.from('app_updates').getPublicUrl('update-v1.0.9.zip').data.publicUrl;
   console.log('Public URL:', publicUrl);
   
   console.log('Updating app_versions table...');
   const { data: verData, error: verError } = await supabase.from('app_versions').insert([
     {
-      version_code: '1.0.7',
+      version_code: '1.0.9',
       zip_url: publicUrl,
       is_active: true
     }
